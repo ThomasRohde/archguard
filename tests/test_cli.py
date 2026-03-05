@@ -7,7 +7,7 @@ import json
 import orjson
 from typer.testing import CliRunner
 
-from guardrails_cli.cli import app
+from archguard.cli import app
 
 runner = CliRunner()
 

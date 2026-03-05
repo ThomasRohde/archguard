@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from guardrails_cli.core.store import load_guardrails, load_links, load_references, load_taxonomy
+from archguard.core.store import load_guardrails, load_links, load_references, load_taxonomy
 
 
 @dataclass

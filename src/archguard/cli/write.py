@@ -8,7 +8,7 @@ from typing import Annotated
 
 import typer
 
-from guardrails_cli.cli import app, handle_error, state
+from archguard.cli import app, handle_error, state
 
 
 @app.command()
@@ -26,7 +26,7 @@ def add(
         )
         raise SystemExit(0)
     if schema:
-        from guardrails_cli.core.models import GuardrailCreate
+        from archguard.core.models import GuardrailCreate
 
         sys.stdout.write(GuardrailCreate.model_json_schema_str() + "\n")
         raise SystemExit(0)
@@ -35,10 +35,10 @@ def add(
     from pydantic import ValidationError
     from ulid import ULID
 
-    from guardrails_cli.core.index import ensure_index
-    from guardrails_cli.core.models import Guardrail, GuardrailCreate, Reference
-    from guardrails_cli.core.store import append_jsonl, load_guardrails, load_taxonomy
-    from guardrails_cli.output.json import success_response
+    from archguard.core.index import ensure_index
+    from archguard.core.models import Guardrail, GuardrailCreate, Reference
+    from archguard.core.store import append_jsonl, load_guardrails, load_taxonomy
+    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
 
@@ -146,9 +146,9 @@ def update(
     import orjson
     from pydantic import ValidationError
 
-    from guardrails_cli.core.models import GuardrailPatch
-    from guardrails_cli.core.store import load_guardrails, load_taxonomy, rewrite_jsonl
-    from guardrails_cli.output.json import success_response
+    from archguard.core.models import GuardrailPatch
+    from archguard.core.store import load_guardrails, load_taxonomy, rewrite_jsonl
+    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
 
@@ -197,7 +197,7 @@ def update(
     # Merge patch fields
     from datetime import UTC, datetime
 
-    from guardrails_cli.core.models import Guardrail
+    from archguard.core.models import Guardrail
 
     patch_data = patch.model_dump(exclude_none=True)
     updated_data = guardrails[idx].model_dump()
@@ -232,9 +232,9 @@ def ref_add(
     import orjson
     from pydantic import ValidationError
 
-    from guardrails_cli.core.models import Reference, ReferenceCreate
-    from guardrails_cli.core.store import append_jsonl, load_guardrails
-    from guardrails_cli.output.json import success_response
+    from archguard.core.models import Reference, ReferenceCreate
+    from archguard.core.store import append_jsonl, load_guardrails
+    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
 
@@ -299,9 +299,9 @@ def link(
         )
         raise SystemExit(0)
 
-    from guardrails_cli.core.models import Link as LinkModel
-    from guardrails_cli.core.store import append_jsonl, load_guardrails
-    from guardrails_cli.output.json import success_response
+    from archguard.core.models import Link as LinkModel
+    from archguard.core.store import append_jsonl, load_guardrails
+    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
 
@@ -345,8 +345,8 @@ def deprecate(
         )
         raise SystemExit(0)
 
-    from guardrails_cli.core.store import load_guardrails, rewrite_jsonl
-    from guardrails_cli.output.json import success_response
+    from archguard.core.store import load_guardrails, rewrite_jsonl
+    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
 
@@ -367,7 +367,7 @@ def deprecate(
 
     from datetime import UTC, datetime
 
-    from guardrails_cli.core.models import Guardrail
+    from archguard.core.models import Guardrail
 
     updated_data = guardrails[idx].model_dump()
     updated_data["status"] = "deprecated"
@@ -399,10 +399,10 @@ def supersede(
         )
         raise SystemExit(0)
 
-    from guardrails_cli.core.models import Guardrail
-    from guardrails_cli.core.models import Link as LinkModel
-    from guardrails_cli.core.store import append_jsonl, load_guardrails, rewrite_jsonl
-    from guardrails_cli.output.json import success_response
+    from archguard.core.models import Guardrail
+    from archguard.core.models import Link as LinkModel
+    from archguard.core.store import append_jsonl, load_guardrails, rewrite_jsonl
+    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
 

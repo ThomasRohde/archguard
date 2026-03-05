@@ -7,7 +7,7 @@ from typing import Annotated, NoReturn
 
 import typer
 
-from guardrails_cli.output.json import error_response
+from archguard.output.json import error_response
 
 app = typer.Typer(
     name="guardrails",
@@ -57,4 +57,4 @@ def handle_error(code: int, name: str, message: str, details: dict | None = None
 
 
 # Import and register sub-command modules
-from guardrails_cli.cli import export, maintenance, read, setup, write  # noqa: E402, F401
+from archguard.cli import export, maintenance, read, setup, write  # noqa: E402, F401

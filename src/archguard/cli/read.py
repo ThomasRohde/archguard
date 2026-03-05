@@ -8,7 +8,7 @@ from typing import Annotated
 
 import typer
 
-from guardrails_cli.cli import app, handle_error, state
+from archguard.cli import app, handle_error, state
 
 
 @app.command()
@@ -38,9 +38,9 @@ def search(
         )
         raise SystemExit(0)
 
-    from guardrails_cli.core.index import ensure_index
-    from guardrails_cli.core.models import SearchResponse
-    from guardrails_cli.core.search import hybrid_search
+    from archguard.core.index import ensure_index
+    from archguard.core.models import SearchResponse
+    from archguard.core.search import hybrid_search
 
     data_dir = Path(state.data_dir)
     db_path = ensure_index(data_dir)
@@ -60,7 +60,7 @@ def search(
     )
 
     if state.format == "table":
-        from guardrails_cli.output.table import format_search_results
+        from archguard.output.table import format_search_results
         sys.stdout.write(format_search_results(results, total, query))
     else:
         sys.stdout.write(response.model_dump_json() + "\n")
@@ -80,8 +80,8 @@ def get(
         )
         raise SystemExit(0)
 
-    from guardrails_cli.core.store import load_guardrails, load_links, load_references
-    from guardrails_cli.output.json import success_response
+    from archguard.core.store import load_guardrails, load_links, load_references
+    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
@@ -101,10 +101,10 @@ def get(
     ]
 
     if state.format == "table":
-        from guardrails_cli.output.table import format_guardrail_detail
+        from archguard.output.table import format_guardrail_detail
         sys.stdout.write(format_guardrail_detail(guardrail, refs, links))
     elif state.format == "markdown":
-        from guardrails_cli.output.markdown import format_guardrail_detail_md
+        from archguard.output.markdown import format_guardrail_detail_md
         sys.stdout.write(format_guardrail_detail_md(guardrail, refs, links))
     else:
         ref_dicts = [r.model_dump() for r in refs]
@@ -132,8 +132,8 @@ def related(
         )
         raise SystemExit(0)
 
-    from guardrails_cli.core.store import load_guardrails, load_links
-    from guardrails_cli.output.json import success_response
+    from archguard.core.store import load_guardrails, load_links
+    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
@@ -213,8 +213,8 @@ def list_guardrails(
         )
         raise SystemExit(0)
 
-    from guardrails_cli.core.store import load_guardrails
-    from guardrails_cli.output.json import success_response
+    from archguard.core.store import load_guardrails
+    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
@@ -241,10 +241,10 @@ def list_guardrails(
     guardrails = guardrails[:top]
 
     if state.format == "table":
-        from guardrails_cli.output.table import format_guardrail_list
+        from archguard.output.table import format_guardrail_list
         sys.stdout.write(format_guardrail_list(guardrails, total))
     elif state.format == "markdown":
-        from guardrails_cli.output.markdown import format_guardrail_list_md
+        from archguard.output.markdown import format_guardrail_list_md
         sys.stdout.write(format_guardrail_list_md(guardrails, total))
     else:
         sys.stdout.write(
@@ -275,8 +275,8 @@ def check(
 
     import orjson
 
-    from guardrails_cli.core.index import ensure_index
-    from guardrails_cli.core.search import hybrid_search
+    from archguard.core.index import ensure_index
+    from archguard.core.search import hybrid_search
 
     data_dir = Path(state.data_dir)
 
@@ -336,7 +336,7 @@ def check(
 
 def _try_load_model(data_dir: Path):  # type: ignore[return]
     """Try to load the Model2Vec model; return None if unavailable."""
-    from guardrails_cli.core.embeddings import try_load_model
+    from archguard.core.embeddings import try_load_model
 
     return try_load_model(data_dir)
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import orjson
 
-from guardrails_cli.core.validator import validate_corpus
+from archguard.core.validator import validate_corpus
 
 
 class TestValidateCorpusClean:

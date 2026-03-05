@@ -8,8 +8,8 @@ from typing import Annotated
 
 import typer
 
-from guardrails_cli.cli import app, state
-from guardrails_cli.output.json import success_response
+from archguard.cli import app, state
+from archguard.output.json import success_response
 
 # TODO: Wire up core.store and core.index once implemented
 
@@ -85,8 +85,8 @@ def build(
         )
         raise SystemExit(0)
 
-    from guardrails_cli.core.index import build_index
-    from guardrails_cli.core.store import load_guardrails, load_links, load_references
+    from archguard.core.index import build_index
+    from archguard.core.store import load_guardrails, load_links, load_references
 
     data_dir = Path(state.data_dir)
     db_path = data_dir / ".guardrails.db"
@@ -100,7 +100,7 @@ def build(
     embedding_count = 0
     model_dir = data_dir / "models" / "potion-base-8M"
     try:
-        from guardrails_cli.core.embeddings import embed_guardrail, embedding_to_blob, load_model
+        from archguard.core.embeddings import embed_guardrail, embedding_to_blob, load_model
 
         model = load_model(model_dir)
         embeddings = {}
@@ -142,7 +142,7 @@ def validate(
         )
         raise SystemExit(0)
 
-    from guardrails_cli.core.validator import validate_corpus
+    from archguard.core.validator import validate_corpus
 
     data_dir = Path(state.data_dir)
     result = validate_corpus(data_dir)

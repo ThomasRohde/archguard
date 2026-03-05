@@ -8,8 +8,8 @@ from pathlib import Path
 
 import orjson
 
-from guardrails_cli.core.embeddings import blob_to_embedding, cosine_similarity
-from guardrails_cli.core.models import SearchResult
+from archguard.core.embeddings import blob_to_embedding, cosine_similarity
+from archguard.core.models import SearchResult
 
 RRF_K = 60
 
@@ -82,7 +82,7 @@ def hybrid_search(
     top: int = 10,
 ) -> tuple[list[SearchResult], int]:
     """Run hybrid BM25+vector search with RRF fusion and filters."""
-    from guardrails_cli.core.index import get_connection
+    from archguard.core.index import get_connection
 
     conn = get_connection(db_path)
     try:
@@ -95,7 +95,7 @@ def hybrid_search(
         # Vector search (if model available)
         vector_results: list[tuple[str, int]] = []
         if model is not None:
-            from guardrails_cli.core.embeddings import embed_text
+            from archguard.core.embeddings import embed_text
 
             query_embedding = embed_text(model, query)
             vector_results = vector_search(conn, query_embedding)

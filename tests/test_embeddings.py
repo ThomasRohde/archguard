@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from guardrails_cli.core.embeddings import (
+from archguard.core.embeddings import (
     blob_to_embedding,
     cosine_similarity,
     embed_guardrail,

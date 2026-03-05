@@ -6,8 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
-from guardrails_cli.core.embeddings import embedding_to_blob
-from guardrails_cli.core.search import (
+from archguard.core.embeddings import embedding_to_blob
+from archguard.core.search import (
     RankedDoc,
     bm25_search,
     hybrid_search,
@@ -103,8 +103,8 @@ def _build_test_index(tmp_path: Path) -> Path:
         for g in guardrails_data:
             f.write(orjson.dumps(g) + b"\n")
 
-    from guardrails_cli.core.index import build_index
-    from guardrails_cli.core.models import Guardrail
+    from archguard.core.index import build_index
+    from archguard.core.models import Guardrail
 
     db_path = data_dir / ".guardrails.db"
     models = [Guardrail(**g) for g in guardrails_data]
@@ -115,7 +115,7 @@ def _build_test_index(tmp_path: Path) -> Path:
 class TestBM25Search:
     def test_matches_keyword(self, tmp_path) -> None:
         db_path = _build_test_index(tmp_path)
-        from guardrails_cli.core.index import get_connection
+        from archguard.core.index import get_connection
 
         conn = get_connection(db_path)
         try:
@@ -128,7 +128,7 @@ class TestBM25Search:
 
     def test_matches_encryption(self, tmp_path) -> None:
         db_path = _build_test_index(tmp_path)
-        from guardrails_cli.core.index import get_connection
+        from archguard.core.index import get_connection
 
         conn = get_connection(db_path)
         try:
@@ -141,7 +141,7 @@ class TestBM25Search:
 
     def test_no_match(self, tmp_path) -> None:
         db_path = _build_test_index(tmp_path)
-        from guardrails_cli.core.index import get_connection
+        from archguard.core.index import get_connection
 
         conn = get_connection(db_path)
         try:
@@ -154,7 +154,7 @@ class TestBM25Search:
 class TestVectorSearch:
     def test_with_synthetic_embeddings(self, tmp_path) -> None:
         db_path = _build_test_index(tmp_path)
-        from guardrails_cli.core.index import get_connection
+        from archguard.core.index import get_connection
 
         conn = get_connection(db_path)
         try:
@@ -183,7 +183,7 @@ class TestVectorSearch:
 
     def test_no_embeddings(self, tmp_path) -> None:
         db_path = _build_test_index(tmp_path)
-        from guardrails_cli.core.index import get_connection
+        from archguard.core.index import get_connection
 
         conn = get_connection(db_path)
         try:

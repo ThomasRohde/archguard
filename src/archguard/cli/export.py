@@ -11,7 +11,7 @@ from typing import Annotated
 import orjson
 import typer
 
-from guardrails_cli.cli import app, handle_error, state
+from archguard.cli import app, handle_error, state
 
 
 @app.command()
@@ -35,7 +35,7 @@ def export(
         )
         raise SystemExit(0)
 
-    from guardrails_cli.core.store import load_guardrails
+    from archguard.core.store import load_guardrails
 
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
@@ -74,8 +74,8 @@ def export(
             })
         output = buf.getvalue()
     elif format == "markdown":
-        from guardrails_cli.core.store import load_references
-        from guardrails_cli.output.markdown import format_export_md
+        from archguard.core.store import load_references
+        from archguard.output.markdown import format_export_md
         references = load_references(data_dir)
         output = format_export_md(guardrails, references)
     else:

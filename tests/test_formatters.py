@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from guardrails_cli.core.models import Guardrail, Link, Reference, SearchResult
+from archguard.core.models import Guardrail, Link, Reference, SearchResult
 
 
 def _make_guardrail(**overrides) -> Guardrail:
@@ -61,7 +61,7 @@ def _make_link(**overrides) -> Link:
 
 class TestTableFormatter:
     def test_format_guardrail_list(self) -> None:
-        from guardrails_cli.output.table import format_guardrail_list
+        from archguard.output.table import format_guardrail_list
 
         g = _make_guardrail()
         output = format_guardrail_list([g], 1)
@@ -71,13 +71,13 @@ class TestTableFormatter:
         assert "must" in output
 
     def test_format_guardrail_list_empty(self) -> None:
-        from guardrails_cli.output.table import format_guardrail_list
+        from archguard.output.table import format_guardrail_list
 
         output = format_guardrail_list([], 0)
         assert "0" in output
 
     def test_format_search_results(self) -> None:
-        from guardrails_cli.output.table import format_search_results
+        from archguard.output.table import format_search_results
 
         r = _make_search_result()
         output = format_search_results([r], 1, "test query")
@@ -87,7 +87,7 @@ class TestTableFormatter:
         assert "bm25" in output
 
     def test_format_stats(self) -> None:
-        from guardrails_cli.output.table import format_stats
+        from archguard.output.table import format_stats
 
         stats_dict = {
             "total": 5,
@@ -104,7 +104,7 @@ class TestTableFormatter:
         assert "Stale" in output
 
     def test_format_review_due(self) -> None:
-        from guardrails_cli.output.table import format_review_due
+        from archguard.output.table import format_review_due
 
         g = _make_guardrail(review_date="2020-01-01")
         output = format_review_due([g], "2025-06-01")
@@ -112,7 +112,7 @@ class TestTableFormatter:
         assert "2020-01-01" in output
 
     def test_format_guardrail_detail(self) -> None:
-        from guardrails_cli.output.table import format_guardrail_detail
+        from archguard.output.table import format_guardrail_detail
 
         g = _make_guardrail(exceptions="No exceptions")
         ref = _make_ref()
@@ -126,7 +126,7 @@ class TestTableFormatter:
         assert "supports" in output
 
     def test_format_guardrail_detail_no_refs_links(self) -> None:
-        from guardrails_cli.output.table import format_guardrail_detail
+        from archguard.output.table import format_guardrail_detail
 
         g = _make_guardrail()
         output = format_guardrail_detail(g, [], [])
@@ -135,7 +135,7 @@ class TestTableFormatter:
 
 class TestMarkdownFormatter:
     def test_format_guardrail_list_md(self) -> None:
-        from guardrails_cli.output.markdown import format_guardrail_list_md
+        from archguard.output.markdown import format_guardrail_list_md
 
         g = _make_guardrail()
         output = format_guardrail_list_md([g], 1)
@@ -145,13 +145,13 @@ class TestMarkdownFormatter:
         assert "*1 total*" in output
 
     def test_format_guardrail_list_md_empty(self) -> None:
-        from guardrails_cli.output.markdown import format_guardrail_list_md
+        from archguard.output.markdown import format_guardrail_list_md
 
         output = format_guardrail_list_md([], 0)
         assert "*0 total*" in output
 
     def test_format_export_md(self) -> None:
-        from guardrails_cli.output.markdown import format_export_md
+        from archguard.output.markdown import format_export_md
 
         g = _make_guardrail()
         ref = _make_ref()
@@ -163,7 +163,7 @@ class TestMarkdownFormatter:
         assert "Test ADR" in output
 
     def test_format_export_md_severity_order(self) -> None:
-        from guardrails_cli.output.markdown import format_export_md
+        from archguard.output.markdown import format_export_md
 
         g1 = _make_guardrail(title="May rule", severity="may")
         g2 = _make_guardrail(title="Must rule", severity="must", id="01HTEST02ABCDEFGHIJKLMNOP")
@@ -174,7 +174,7 @@ class TestMarkdownFormatter:
         assert must_pos < may_pos
 
     def test_format_stats_md(self) -> None:
-        from guardrails_cli.output.markdown import format_stats_md
+        from archguard.output.markdown import format_stats_md
 
         stats_dict = {
             "total": 3,
@@ -189,7 +189,7 @@ class TestMarkdownFormatter:
         assert "active" in output
 
     def test_format_review_due_md(self) -> None:
-        from guardrails_cli.output.markdown import format_review_due_md
+        from archguard.output.markdown import format_review_due_md
 
         g = _make_guardrail(review_date="2020-01-01")
         output = format_review_due_md([g], "2025-06-01")

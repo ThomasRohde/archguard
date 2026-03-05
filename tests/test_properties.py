@@ -5,7 +5,7 @@ from __future__ import annotations
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from guardrails_cli.core.models import Guardrail
+from archguard.core.models import Guardrail
 
 VALID_STATUSES = ["draft", "active", "deprecated", "superseded"]
 VALID_SEVERITIES = ["must", "should", "may"]

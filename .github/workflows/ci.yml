@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
+      - uses: astral-sh/setup-uv@v5
       - name: Install dependencies
         run: uv sync
       - name: Lint
@@ -20,18 +20,3 @@ jobs:
         run: uv run pyright src/
       - name: Test
         run: uv run pytest --tb=short
-
-  validate-guardrails:
-    runs-on: ubuntu-latest
-    if: contains(github.event.pull_request.changed_files, 'guardrails/')
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v4
-      - name: Install
-        run: uv sync
-      - name: Validate guardrails
-        run: uv run guardrails validate
-      - name: Build index
-        run: uv run guardrails build
-      - name: Stats
-        run: uv run guardrails stats --format json

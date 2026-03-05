@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
-    from guardrails_cli.core.models import Guardrail
+    from archguard.core.models import Guardrail
 
 
 def load_model(model_dir: Path):  # type: ignore[return]

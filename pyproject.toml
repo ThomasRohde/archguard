@@ -1,11 +1,33 @@
 [project]
-name = "guardrails-cli"
-version = "0.1.0"
-description = "Architecture guardrails management CLI — queryable store of architectural constraints, standards, and rules."
+name = "archguard"
+dynamic = ["version"]
+description = "Architecture guardrails management CLI — queryable store of architectural constraints with hybrid BM25 + vector search."
 readme = "README.md"
 license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
-authors = [{ name = "EA Team" }]
+authors = [
+    { name = "Thomas Klok Rohde", email = "rohde.thomas@gmail.com" },
+]
+keywords = [
+    "architecture",
+    "guardrails",
+    "governance",
+    "enterprise-architecture",
+    "cli",
+    "search",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+    "Typing :: Typed",
+]
 
 dependencies = [
     "typer>=0.12",
@@ -17,15 +39,33 @@ dependencies = [
     "numpy>=1.26",
 ]
 
+[project.urls]
+Homepage = "https://github.com/ThomasRohde/archguard"
+Repository = "https://github.com/ThomasRohde/archguard.git"
+Issues = "https://github.com/ThomasRohde/archguard/issues"
+
 [project.scripts]
-guardrails = "guardrails_cli.__main__:main"
+archguard = "archguard.__main__:main"
+guardrails = "archguard.__main__:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+    "hypothesis>=6.0",
+    "pyright>=1.1",
+    "ruff>=0.4",
+]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
+[tool.hatch.version]
+path = "src/archguard/__init__.py"
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/guardrails_cli"]
+packages = ["src/archguard"]
 
 [tool.ruff]
 target-version = "py312"
@@ -47,9 +87,4 @@ testpaths = ["tests"]
 addopts = "-ra -q"
 
 [dependency-groups]
-dev = [
-    "pytest>=8.0",
-    "hypothesis>=6.0",
-    "pyright>=1.1",
-    "ruff>=0.4",
-]
+dev = ["archguard[dev]"]

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import orjson
 
-from guardrails_cli.core.models import Guardrail, Link, Reference
+from archguard.core.models import Guardrail, Link, Reference
 
 SCHEMA_VERSION = 1
 
@@ -174,7 +174,7 @@ def build_index(
 
 def ensure_index(data_dir: Path) -> Path:
     """Rebuild the SQLite index if stale. Returns the db_path."""
-    from guardrails_cli.core.store import load_guardrails, load_links, load_references
+    from archguard.core.store import load_guardrails, load_links, load_references
 
     db_path = data_dir / ".guardrails.db"
     if is_stale(db_path, data_dir):
@@ -185,7 +185,7 @@ def ensure_index(data_dir: Path) -> Path:
         embeddings: dict[str, bytes] | None = None
         model_dir = data_dir / "models" / "potion-base-8M"
         try:
-            from guardrails_cli.core.embeddings import (
+            from archguard.core.embeddings import (
                 embed_guardrail,
                 embedding_to_blob,
                 load_model,

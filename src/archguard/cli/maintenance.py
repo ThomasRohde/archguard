@@ -7,7 +7,7 @@ from typing import Annotated
 
 import typer
 
-from guardrails_cli.cli import app, handle_error
+from archguard.cli import app, handle_error
 
 
 @app.command()
@@ -28,9 +28,9 @@ def stats(
     from datetime import UTC, datetime
     from pathlib import Path
 
-    from guardrails_cli.cli import state
-    from guardrails_cli.core.store import load_guardrails
-    from guardrails_cli.output.json import success_response
+    from archguard.cli import state
+    from archguard.core.store import load_guardrails
+    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
@@ -58,10 +58,10 @@ def stats(
     }
 
     if state.format == "table":
-        from guardrails_cli.output.table import format_stats
+        from archguard.output.table import format_stats
         sys.stdout.write(format_stats(stats_dict))
     elif state.format == "markdown":
-        from guardrails_cli.output.markdown import format_stats_md
+        from archguard.output.markdown import format_stats_md
         sys.stdout.write(format_stats_md(stats_dict))
     else:
         sys.stdout.write(success_response(stats_dict) + "\n")
@@ -84,9 +84,9 @@ def review_due(
     from datetime import UTC, datetime
     from pathlib import Path
 
-    from guardrails_cli.cli import state
-    from guardrails_cli.core.store import load_guardrails
-    from guardrails_cli.output.json import success_response
+    from archguard.cli import state
+    from archguard.core.store import load_guardrails
+    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
@@ -98,10 +98,10 @@ def review_due(
     due.sort(key=lambda g: g.review_date)  # type: ignore[arg-type]
 
     if state.format == "table":
-        from guardrails_cli.output.table import format_review_due
+        from archguard.output.table import format_review_due
         sys.stdout.write(format_review_due(due, cutoff))
     elif state.format == "markdown":
-        from guardrails_cli.output.markdown import format_review_due_md
+        from archguard.output.markdown import format_review_due_md
         sys.stdout.write(format_review_due_md(due, cutoff))
     else:
         sys.stdout.write(
@@ -132,9 +132,9 @@ def deduplicate(
 
     from pathlib import Path
 
-    from guardrails_cli.cli import state
-    from guardrails_cli.core.store import load_guardrails
-    from guardrails_cli.output.json import success_response
+    from archguard.cli import state
+    from archguard.core.store import load_guardrails
+    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
@@ -155,11 +155,11 @@ def deduplicate(
         }
 
     # Try embedding-based similarity
-    from guardrails_cli.core.embeddings import try_load_model
+    from archguard.core.embeddings import try_load_model
     model = try_load_model(data_dir)
 
     if model is not None:
-        from guardrails_cli.core.embeddings import cosine_similarity, embed_guardrail
+        from archguard.core.embeddings import cosine_similarity, embed_guardrail
         embeddings = [embed_guardrail(model, g) for g in guardrails]
         for i in range(len(guardrails)):
             for j in range(i + 1, len(guardrails)):
@@ -210,10 +210,10 @@ def import_guardrails(
     import orjson
     from ulid import ULID
 
-    from guardrails_cli.cli import state
-    from guardrails_cli.core.models import Guardrail, GuardrailCreate
-    from guardrails_cli.core.store import load_guardrails, load_taxonomy, rewrite_jsonl
-    from guardrails_cli.output.json import success_response
+    from archguard.cli import state
+    from archguard.core.models import Guardrail, GuardrailCreate
+    from archguard.core.store import load_guardrails, load_taxonomy, rewrite_jsonl
+    from archguard.output.json import success_response
 
     file_path = Path(file)
     if not file_path.exists():

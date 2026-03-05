@@ -1,10 +1,10 @@
-# guardrails-cli
+# archguard
+
+[![PyPI version](https://img.shields.io/pypi/v/archguard)](https://pypi.org/project/archguard/)
+[![Python 3.12+](https://img.shields.io/pypi/pyversions/archguard)](https://pypi.org/project/archguard/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Architecture guardrails management CLI -- a queryable store of architectural constraints, standards, and rules backed by full-text search (BM25) and vector similarity (semantic search).
-
-## Status
-
-**Pre-release / Scaffold** -- Core structure is in place, commands are stubbed with guided TODOs. See [docs/ROADMAP.md](docs/ROADMAP.md) for milestones.
 
 ## Who is this for?
 
@@ -12,75 +12,117 @@ Architecture guardrails management CLI -- a queryable store of architectural con
 - **Enterprise architects** who need a single, authoritative source of guardrails.
 - **Platform teams** maintaining architectural standards across an organisation.
 
+## Installation
+
+```bash
+pip install archguard
+```
+
+Or with [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv tool install archguard
+```
+
 ## Quick start
 
 ```bash
-# Install uv if you haven't already
-# https://docs.astral.sh/uv/getting-started/installation/
+# Initialize a guardrails repository
+archguard init
 
-# Clone and install
-git clone <repo-url> && cd archguard
+# Add a guardrail from stdin
+echo '{"title":"Prefer managed services","severity":"should","rationale":"Reduce ops","guidance":"Use managed offerings","scope":["it-platform"],"applies_to":["technology"],"owner":"Platform Team"}' | archguard add
+
+# Search guardrails
+archguard search "managed services"
+
+# Check a decision against guardrails
+echo '{"decision":"Use self-hosted Kafka"}' | archguard check
+
+# List, filter, and export
+archguard list --status active --severity must
+archguard export --format markdown
+archguard -f table stats
+```
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `archguard init` | Create data directory and download embedding model |
+| `archguard add` | Add a guardrail (reads JSON from stdin) |
+| `archguard get <id>` | Get full detail for a guardrail |
+| `archguard list` | List guardrails with filters |
+| `archguard search <query>` | Hybrid BM25 + vector search |
+| `archguard check` | Validate a decision against the corpus |
+| `archguard update <id>` | Patch a guardrail (reads JSON from stdin) |
+| `archguard deprecate <id>` | Mark a guardrail as deprecated |
+| `archguard supersede <id> --by <new_id>` | Replace one guardrail with another |
+| `archguard ref-add <id>` | Add a reference to a guardrail |
+| `archguard link <from> <to>` | Create a relationship between guardrails |
+| `archguard related <id>` | Show linked guardrails |
+| `archguard export` | Export as JSON, CSV, or Markdown |
+| `archguard import <file>` | Bulk import from JSON or CSV |
+| `archguard stats` | Counts by status, severity, scope |
+| `archguard review-due` | List guardrails past their review date |
+| `archguard deduplicate` | Detect likely duplicates |
+| `archguard build` | Rebuild the search index |
+| `archguard validate` | Check data integrity |
+
+Every command supports `--explain` for a description and `--help` for usage.
+
+## Global options
+
+```
+-f, --format   Output format: json (default), table, markdown
+-d, --data-dir Path to data directory (default: guardrails)
+-q, --quiet    Suppress stderr progress messages
+```
+
+## Output formats
+
+- **JSON** (default): Machine-readable, enveloped `{"ok": true, ...}`
+- **Table**: Rich terminal tables with color-coded severity
+- **Markdown**: Confluence-ready export with grouped sections
+
+## Development
+
+```bash
+git clone https://github.com/archguard/archguard && cd archguard
 uv sync
 
-# Initialize a guardrails repository
-uv run guardrails init
-
-# Run tests
-uv run pytest
+uv run pytest              # 179 tests
+uv run ruff check src/     # Lint
 ```
 
 ## Repository structure
 
 ```
-archguard/
-├── PRD.md                         # Product requirements (source of truth)
-├── CLI-MANIFEST.md                # Agent-friendly CLI contract
-├── pyproject.toml                 # Python project config (uv/hatch)
-├── src/guardrails_cli/
-│   ├── __main__.py                # Entry point
-│   ├── cli/                       # Typer command definitions
-│   │   ├── setup.py               # init, build, validate
-│   │   ├── write.py               # add, update, ref-add, link, deprecate, supersede
-│   │   ├── read.py                # search, get, related, list, check
-│   │   ├── export.py              # export
-│   │   └── maintenance.py         # stats, review-due, deduplicate, import
-│   ├── core/                      # Business logic
-│   │   ├── models.py              # Pydantic models
-│   │   ├── store.py               # JSONL read/write
-│   │   ├── index.py               # SQLite index
-│   │   ├── search.py              # Hybrid search (BM25 + vector + RRF)
-│   │   ├── embeddings.py          # Model2Vec wrapper
-│   │   └── validator.py           # Integrity checks
-│   └── output/                    # Output formatting
-│       ├── json.py                # orjson serialization
-│       ├── table.py               # Rich tables
-│       └── markdown.py            # Markdown export
-├── tests/                         # pytest + hypothesis
-├── docs/                          # Project documentation
-└── .github/                       # CI and agent instructions
-```
-
-## Commands overview
-
-| Command | Description |
-|---------|-------------|
-| `guardrails init` | Create data directory and download model |
-| `guardrails add < g.json` | Add a guardrail from stdin |
-| `guardrails search "query"` | Hybrid BM25 + vector search |
-| `guardrails check < context.json` | Validate a decision against guardrails |
-| `guardrails list --status active` | List with filters |
-| `guardrails export --format markdown` | Export for publishing |
-
-See `guardrails --help` for the full command surface.
-
-## Running tests
-
-```bash
-uv run pytest              # All tests
-uv run pytest -x           # Stop on first failure
-uv run pytest -k test_models  # Run specific test module
+src/archguard/
+├── __main__.py            # Entry point
+├── cli/                   # Typer command definitions
+│   ├── setup.py           # init, build, validate
+│   ├── write.py           # add, update, ref-add, link, deprecate, supersede
+│   ├── read.py            # search, get, related, list, check
+│   ├── export.py          # export
+│   └── maintenance.py     # stats, review-due, deduplicate, import
+├── core/                  # Business logic
+│   ├── models.py          # Pydantic models
+│   ├── store.py           # JSONL read/write
+│   ├── index.py           # SQLite index (FTS5)
+│   ├── search.py          # Hybrid search (BM25 + vector + RRF)
+│   ├── embeddings.py      # Model2Vec wrapper
+│   └── validator.py       # Integrity checks
+└── output/                # Output formatting
+    ├── json.py            # orjson serialization
+    ├── table.py           # Rich tables
+    └── markdown.py        # Markdown export
 ```
 
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+
+MIT

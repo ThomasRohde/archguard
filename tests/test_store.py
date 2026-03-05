@@ -6,8 +6,8 @@ from pathlib import Path
 
 import orjson
 
-from guardrails_cli.core.models import Guardrail
-from guardrails_cli.core.store import (
+from archguard.core.models import Guardrail
+from archguard.core.store import (
     append_jsonl,
     load_taxonomy,
     read_jsonl,

@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from guardrails_cli.core.index import (
+from archguard.core.index import (
     build_index,
     create_schema,
     ensure_index,
     get_connection,
     is_stale,
 )
-from guardrails_cli.core.models import Guardrail, Link, Reference
+from archguard.core.models import Guardrail, Link, Reference
 
 
 class TestGetConnection:

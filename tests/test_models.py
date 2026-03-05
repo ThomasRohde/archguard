@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from guardrails_cli.core.models import Guardrail, GuardrailPatch, Link, Reference
+from archguard.core.models import Guardrail, GuardrailPatch, Link, Reference
 
 
 class TestGuardrail:

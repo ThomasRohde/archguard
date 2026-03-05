@@ -7,7 +7,7 @@ from pathlib import Path
 import orjson
 from pydantic import BaseModel
 
-from guardrails_cli.core.models import Guardrail, Link, Reference
+from archguard.core.models import Guardrail, Link, Reference
 
 
 def read_jsonl[T: BaseModel](path: Path, model: type[T]) -> list[T]:
