@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import sys
-from typing import Annotated
+from typing import Annotated, Any, cast
 
 import typer
 
 from archguard.cli import app, handle_error
+from archguard.core.models import Guardrail
 
 
 @app.command()
@@ -145,9 +146,11 @@ def deduplicate(
         )
         return
 
-    pairs: list[dict] = []
+    pairs: list[dict[str, str | float]] = []
 
-    def _make_pair(ga, gb, sim: float, method: str) -> dict:
+    def _make_pair(
+        ga: Guardrail, gb: Guardrail, sim: float, method: str
+    ) -> dict[str, str | float]:
         return {
             "id_a": ga.id, "title_a": ga.title,
             "id_b": gb.id, "title_b": gb.title,
@@ -228,7 +231,7 @@ def import_guardrails(
     taxonomy = load_taxonomy(data_dir)
     by_title = {g.title: g for g in guardrails}
 
-    raw_records: list[dict] = []
+    raw_records: list[dict[str, Any]] = []
     errors: list[str] = []
 
     if ext == ".json":
@@ -237,14 +240,14 @@ def import_guardrails(
             parsed = orjson.loads(content)
             if not isinstance(parsed, list):
                 handle_error(1, "invalid_format", "JSON file must contain an array of objects")
-            raw_records = parsed
+            raw_records = cast(list[dict[str, Any]], parsed)
         except orjson.JSONDecodeError as exc:
             handle_error(1, "invalid_json", str(exc))
     else:
         text = file_path.read_text(encoding="utf-8")
         reader = csv_mod.DictReader(StringIO(text))
         for row in reader:
-            record: dict = dict(row)
+            record: dict[str, Any] = dict(row)
             if "scope" in record and isinstance(record["scope"], str):
                 record["scope"] = [s.strip() for s in record["scope"].split(";") if s.strip()]
             if "applies_to" in record and isinstance(record["applies_to"], str):

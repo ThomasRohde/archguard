@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import date
+from typing import Any
+
+from archguard.core.models import Guardrail, Link, Reference
 
 _SEVERITY_ORDER = {"must": 0, "should": 1, "may": 2}
 _SEVERITY_BADGE = {"must": "MUST", "should": "SHOULD", "may": "MAY"}
@@ -23,10 +26,10 @@ def _escape(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
 
 
-def format_guardrail_list_md(guardrails: list, total: int) -> str:
+def format_guardrail_list_md(guardrails: list[Guardrail], total: int) -> str:
     """Format guardrails as a Markdown table."""
     headers = ["ID", "Title", "Status", "Severity", "Scope", "Owner"]
-    rows = []
+    rows: list[list[str]] = []
     for g in guardrails:
         rows.append([
             g.id[:8],
@@ -40,7 +43,7 @@ def format_guardrail_list_md(guardrails: list, total: int) -> str:
     return f"{table}\n\n*{total} total*\n"
 
 
-def format_export_md(guardrails: list, references: list) -> str:
+def format_export_md(guardrails: list[Guardrail], references: list[Reference]) -> str:
     """Full Confluence-style export of all guardrails."""
     parts: list[str] = []
 
@@ -68,12 +71,12 @@ def format_export_md(guardrails: list, references: list) -> str:
     parts.append("")
 
     # Build reference lookup
-    ref_by_gid: dict[str, list] = defaultdict(list)
+    ref_by_gid: dict[str, list[Reference]] = defaultdict(list)
     for ref in references:
         ref_by_gid[ref.guardrail_id].append(ref)
 
     # Group by scope
-    scope_groups: dict[str, list] = defaultdict(list)
+    scope_groups: dict[str, list[Guardrail]] = defaultdict(list)
     for g in guardrails:
         for s in g.scope:
             scope_groups[s].append(g)
@@ -129,7 +132,9 @@ def format_export_md(guardrails: list, references: list) -> str:
     return "\n".join(parts) + "\n"
 
 
-def format_guardrail_detail_md(guardrail, refs: list, links: list) -> str:
+def format_guardrail_detail_md(
+    guardrail: Guardrail, refs: list[Reference], links: list[Link]
+) -> str:
     """Format a single guardrail with full detail in Markdown."""
     g = guardrail
     parts: list[str] = []
@@ -192,41 +197,45 @@ def format_guardrail_detail_md(guardrail, refs: list, links: list) -> str:
     return "\n".join(parts) + "\n"
 
 
-def format_stats_md(stats_dict: dict) -> str:
+def format_stats_md(stats_dict: dict[str, Any]) -> str:
     """Format statistics as Markdown tables."""
     parts: list[str] = []
     parts.append(f"**Total guardrails:** {stats_dict.get('total', 0)}\n")
 
-    by_status = stats_dict.get("by_status", {})
+    by_status: dict[str, int] = stats_dict.get("by_status", {})
     if by_status:
         parts.append("### By Status\n")
-        parts.append(_md_table(["Status", "Count"], [[s, str(c)] for s, c in by_status.items()]))
+        parts.append(
+            _md_table(["Status", "Count"], [[s, str(c)] for s, c in by_status.items()])
+        )
         parts.append("")
 
-    by_severity = stats_dict.get("by_severity", {})
+    by_severity: dict[str, int] = stats_dict.get("by_severity", {})
     if by_severity:
         parts.append("### By Severity\n")
-        rows = [[s, str(c)] for s, c in by_severity.items()]
+        rows: list[list[str]] = [[s, str(c)] for s, c in by_severity.items()]
         parts.append(_md_table(["Severity", "Count"], rows))
         parts.append("")
 
-    by_scope = stats_dict.get("by_scope", {})
+    by_scope: dict[str, int] = stats_dict.get("by_scope", {})
     if by_scope:
         parts.append("### By Scope\n")
-        parts.append(_md_table(["Scope", "Count"], [[s, str(c)] for s, c in by_scope.items()]))
+        parts.append(
+            _md_table(["Scope", "Count"], [[s, str(c)] for s, c in by_scope.items()])
+        )
         parts.append("")
 
-    stale = stats_dict.get("stale", 0)
+    stale: int = stats_dict.get("stale", 0)
     parts.append(f"**Stale (review overdue):** {stale}\n")
 
     return "\n".join(parts)
 
 
-def format_review_due_md(guardrails: list, cutoff: str) -> str:
+def format_review_due_md(guardrails: list[Guardrail], cutoff: str) -> str:
     """Format overdue reviews as a Markdown table."""
     today = date.fromisoformat(cutoff)
     headers = ["ID", "Title", "Review Date", "Days Overdue"]
-    rows = []
+    rows: list[list[str]] = []
     for g in guardrails:
         review = g.review_date or ""
         if review:

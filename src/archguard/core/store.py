@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import orjson
@@ -31,7 +32,7 @@ def append_jsonl(path: Path, record: BaseModel) -> None:
         f.write(line)
 
 
-def rewrite_jsonl(path: Path, records: list[BaseModel]) -> None:
+def rewrite_jsonl(path: Path, records: Sequence[BaseModel]) -> None:
     """Rewrite an entire JSONL file from a list of records (edit semantics)."""
     with open(path, "wb") as f:
         for record in records:

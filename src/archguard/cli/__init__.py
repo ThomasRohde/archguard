@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from typing import Annotated, NoReturn
+from typing import Annotated, Any, NoReturn
 
 import typer
 
@@ -49,12 +49,18 @@ def main(
     state.data_dir = data_dir
 
 
-def handle_error(code: int, name: str, message: str, details: dict | None = None) -> NoReturn:
+def handle_error(
+    code: int, name: str, message: str, details: dict[str, Any] | None = None
+) -> NoReturn:
     """Print structured error JSON to stdout and exit with the given code."""
     output = error_response(code, name, message, details or {})
     sys.stdout.write(output + "\n")
     raise SystemExit(code)
 
 
-# Import and register sub-command modules
-from archguard.cli import export, maintenance, read, setup, write  # noqa: E402, F401
+# Import and register sub-command modules (side-effect imports)
+from archguard.cli import export as export  # noqa: E402
+from archguard.cli import maintenance as maintenance  # noqa: E402
+from archguard.cli import read as read  # noqa: E402
+from archguard.cli import setup as setup  # noqa: E402
+from archguard.cli import write as write  # noqa: E402

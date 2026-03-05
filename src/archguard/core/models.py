@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -30,7 +30,7 @@ class Guardrail(BaseModel):
     superseded_by: str | None = Field(default=None)
     created_at: str = Field(description="ISO 8601 datetime")
     updated_at: str = Field(description="ISO 8601 datetime")
-    metadata: dict = Field(default_factory=dict)  # type: ignore[type-arg]
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class Reference(BaseModel):
@@ -74,8 +74,8 @@ class GuardrailCreate(BaseModel):
     lifecycle_stage: list[str] = Field(default=["acquire", "build", "operate", "retire"])
     owner: str = Field(min_length=1)
     review_date: str | None = None
-    metadata: dict = Field(default_factory=dict)  # type: ignore[type-arg]
-    references: list[ReferenceCreate] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    references: list[ReferenceCreate] = Field(default_factory=lambda: [])
 
     @classmethod
     def model_json_schema_str(cls) -> str:
@@ -109,7 +109,7 @@ class GuardrailPatch(BaseModel):
     lifecycle_stage: list[str] | None = None
     owner: str | None = None
     review_date: str | None = None
-    metadata: dict | None = None  # type: ignore[type-arg]
+    metadata: dict[str, Any] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -136,20 +136,20 @@ class SearchResponse(BaseModel):
     results: list[SearchResult]
     total: int
     query: str
-    filters_applied: dict  # type: ignore[type-arg]
+    filters_applied: dict[str, Any]
 
 
 class CheckResponse(BaseModel):
     """Check command output envelope."""
 
     ok: bool = True
-    context: dict  # type: ignore[type-arg]
+    context: dict[str, Any]
     matches: list[SearchResult]
-    summary: dict  # type: ignore[type-arg]
+    summary: dict[str, Any]
 
 
 class ErrorResponse(BaseModel):
     """Structured error envelope."""
 
     ok: bool = False
-    error: dict  # type: ignore[type-arg]
+    error: dict[str, Any]

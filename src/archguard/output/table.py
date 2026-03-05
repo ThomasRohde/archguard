@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from datetime import date
 from io import StringIO
+from typing import Any
 
-from rich.console import Console
+from rich.console import Console, RenderableType
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
+
+from archguard.core.models import Guardrail, Link, Reference, SearchResult
 
 
 def _severity_style(severity: str) -> str:
@@ -23,14 +26,14 @@ def _status_style(status: str) -> str:
     }.get(status, "")
 
 
-def _capture(renderable) -> str:
+def _capture(renderable: RenderableType) -> str:
     sio = StringIO()
     console = Console(file=sio, force_terminal=True, width=120)
     console.print(renderable)
     return sio.getvalue()
 
 
-def format_guardrail_list(guardrails: list, total: int) -> str:
+def format_guardrail_list(guardrails: list[Guardrail], total: int) -> str:
     """Format a list of guardrails as a Rich table."""
     table = Table(title="Guardrails", show_lines=False)
     table.add_column("ID", style="cyan", max_width=8)
@@ -58,7 +61,9 @@ def format_guardrail_list(guardrails: list, total: int) -> str:
     return _capture(table)
 
 
-def format_search_results(results: list, total: int, query: str) -> str:
+def format_search_results(
+    results: list[SearchResult], total: int, query: str
+) -> str:
     """Format search results as a Rich table."""
     table = Table(title=f"Search: [italic]{query}[/italic]", show_lines=False)
     table.add_column("#", style="dim", justify="right")
@@ -83,13 +88,13 @@ def format_search_results(results: list, total: int, query: str) -> str:
     return _capture(table)
 
 
-def format_stats(stats_dict: dict) -> str:
+def format_stats(stats_dict: dict[str, Any]) -> str:
     """Format statistics as a Rich panel with grouped counts."""
     lines: list[str] = []
     lines.append(f"[bold]Total guardrails:[/bold] {stats_dict.get('total', 0)}")
     lines.append("")
 
-    by_status = stats_dict.get("by_status", {})
+    by_status: dict[str, int] = stats_dict.get("by_status", {})
     if by_status:
         lines.append("[bold underline]By Status[/bold underline]")
         for status, count in by_status.items():
@@ -98,7 +103,7 @@ def format_stats(stats_dict: dict) -> str:
             lines.append(f"  {label}: {count}")
         lines.append("")
 
-    by_severity = stats_dict.get("by_severity", {})
+    by_severity: dict[str, int] = stats_dict.get("by_severity", {})
     if by_severity:
         lines.append("[bold underline]By Severity[/bold underline]")
         for severity, count in by_severity.items():
@@ -107,21 +112,21 @@ def format_stats(stats_dict: dict) -> str:
             lines.append(f"  {label}: {count}")
         lines.append("")
 
-    by_scope = stats_dict.get("by_scope", {})
+    by_scope: dict[str, int] = stats_dict.get("by_scope", {})
     if by_scope:
         lines.append("[bold underline]By Scope[/bold underline]")
         for scope, count in by_scope.items():
             lines.append(f"  {scope}: {count}")
         lines.append("")
 
-    stale = stats_dict.get("stale", 0)
+    stale: int = stats_dict.get("stale", 0)
     lines.append(f"[bold]Stale (review overdue):[/bold] {stale}")
 
     panel = Panel("\n".join(lines), title="Guardrail Statistics", border_style="blue")
     return _capture(panel)
 
 
-def format_review_due(guardrails: list, cutoff: str) -> str:
+def format_review_due(guardrails: list[Guardrail], cutoff: str) -> str:
     """Format guardrails with overdue reviews as a Rich table."""
     today = date.fromisoformat(cutoff)
     table = Table(title="Reviews Due", show_lines=False)
@@ -148,23 +153,25 @@ def format_review_due(guardrails: list, cutoff: str) -> str:
     return _capture(table)
 
 
-def format_guardrail_detail(guardrail, refs: list, links: list) -> str:
+def format_guardrail_detail(
+    guardrail: Guardrail, refs: list[Reference], links: list[Link]
+) -> str:
     """Format a single guardrail with full detail, refs, and links."""
     g = guardrail
     lines: list[str] = []
 
-    severity_style = _severity_style(g.severity)
-    status_style = _status_style(g.status)
+    sev_style = _severity_style(g.severity)
+    stat_style = _status_style(g.status)
 
     lines.append(f"[bold]{g.title}[/bold]")
     lines.append("")
     lines.append(f"[dim]ID:[/dim]       {g.id}")
-    if status_style:
-        lines.append(f"[dim]Status:[/dim]   [{status_style}]{g.status}[/{status_style}]")
+    if stat_style:
+        lines.append(f"[dim]Status:[/dim]   [{stat_style}]{g.status}[/{stat_style}]")
     else:
         lines.append(f"[dim]Status:[/dim]   {g.status}")
-    if severity_style:
-        lines.append(f"[dim]Severity:[/dim] [{severity_style}]{g.severity}[/{severity_style}]")
+    if sev_style:
+        lines.append(f"[dim]Severity:[/dim] [{sev_style}]{g.severity}[/{sev_style}]")
     else:
         lines.append(f"[dim]Severity:[/dim] {g.severity}")
     lines.append(f"[dim]Scope:[/dim]    {', '.join(g.scope)}")
@@ -196,8 +203,8 @@ def format_guardrail_detail(guardrail, refs: list, links: list) -> str:
     if g.metadata:
         lines.append("")
         lines.append("[bold underline]Metadata[/bold underline]")
-        for k, v in g.metadata.items():
-            lines.append(f"  {k}: {v}")
+        for mk, mv in g.metadata.items():
+            lines.append(f"  {mk}: {mv}")
 
     if refs:
         lines.append("")
@@ -213,7 +220,9 @@ def format_guardrail_detail(guardrail, refs: list, links: list) -> str:
         lines.append("[bold underline]Links[/bold underline]")
         for lnk in links:
             note_part = f" - {lnk.note}" if lnk.note else ""
-            lines.append(f"  {lnk.rel_type}: {lnk.from_id[:8]} -> {lnk.to_id[:8]}{note_part}")
+            lines.append(
+                f"  {lnk.rel_type}: {lnk.from_id[:8]} -> {lnk.to_id[:8]}{note_part}"
+            )
 
     panel = Panel("\n".join(lines), border_style="blue")
     return _capture(panel)

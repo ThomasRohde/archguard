@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -148,7 +148,7 @@ def related(
     # Build a lookup map
     guardrail_map = {g.id: g for g in guardrails}
 
-    related_items: list[dict] = []  # type: ignore[type-arg]
+    related_items: list[dict[str, str]] = []
     for lnk in links:
         if lnk.from_id == guardrail_id:
             other = guardrail_map.get(lnk.to_id)
@@ -295,14 +295,14 @@ def check(
         return
 
     # Build search query from decision + tags
-    tags = context.get("tags", [])
-    query_parts = [decision]
-    if tags and isinstance(tags, list):
-        query_parts.extend(str(t) for t in tags)
+    raw_tags: list[str] = context.get("tags") or []
+    query_parts: list[str] = [decision]
+    if raw_tags:
+        query_parts.extend(raw_tags)
     query = " ".join(query_parts)
 
     # Build filters from structured fields
-    filters: dict[str, str | None] = {}  # type: ignore[type-arg]
+    filters: dict[str, str | None] = {}
     if context.get("scope") and isinstance(context["scope"], list) and context["scope"]:
         filters["scope"] = context["scope"][0]
     if (
@@ -334,7 +334,7 @@ def check(
     sys.stdout.write(orjson.dumps(response).decode() + "\n")
 
 
-def _try_load_model(data_dir: Path):  # type: ignore[return]
+def _try_load_model(data_dir: Path) -> Any:
     """Try to load the Model2Vec model; return None if unavailable."""
     from archguard.core.embeddings import try_load_model
 
@@ -348,7 +348,7 @@ def _build_filters(
     applies_to: str | None,
     lifecycle_stage: str | None,
     owner: str | None,
-) -> dict[str, str | None] | None:  # type: ignore[type-arg]
+) -> dict[str, str | None] | None:
     """Build a filters dict from CLI options, or None if no filters."""
     filters = {
         "status": status,

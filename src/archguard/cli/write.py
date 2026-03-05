@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -105,7 +105,7 @@ def add(
     append_jsonl(data_dir / "guardrails.jsonl", guardrail)
 
     # Handle inline references
-    refs_created = []
+    refs_created: list[dict[str, Any]] = []
     if create.references:
         for ref_create in create.references:
             ref = Reference(
@@ -321,7 +321,12 @@ def link(
     if to_id not in ids:
         handle_error(10, "not_found", f"Guardrail '{to_id}' not found")
 
-    link_record = LinkModel(from_id=from_id, to_id=to_id, rel_type=rel, note=note)
+    link_record = LinkModel(
+        from_id=from_id,
+        to_id=to_id,
+        rel_type=rel,  # type: ignore[arg-type]  # validated above
+        note=note,
+    )
     append_jsonl(data_dir / "links.jsonl", link_record)
 
     sys.stdout.write(

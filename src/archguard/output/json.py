@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import orjson
 
 
-def success_response(data: dict) -> str:  # type: ignore[type-arg]
+def success_response(data: dict[str, Any]) -> str:
     """Wrap data in a success envelope and serialize to JSON string."""
-    envelope = {"ok": True, **data}
+    envelope: dict[str, Any] = {"ok": True, **data}
     return orjson.dumps(envelope).decode()
 
 
-def error_response(code: int, name: str, message: str, details: dict) -> str:  # type: ignore[type-arg]
+def error_response(code: int, name: str, message: str, details: dict[str, Any]) -> str:
     """Create a structured error response JSON string."""
-    envelope = {
+    envelope: dict[str, object] = {
         "ok": False,
         "error": {
             "code": code,

@@ -5,7 +5,10 @@ from __future__ import annotations
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+import numpy as np
+import numpy.typing as npt
 import orjson
 
 from archguard.core.embeddings import blob_to_embedding, cosine_similarity
@@ -29,7 +32,7 @@ class RankedDoc:
 
     @property
     def rrf(self) -> float:
-        ranks = []
+        ranks: list[int] = []
         if self.bm25_rank is not None:
             ranks.append(self.bm25_rank)
         if self.vector_rank is not None:
@@ -52,12 +55,10 @@ def bm25_search(conn: sqlite3.Connection, query: str, limit: int = 100) -> list[
 
 def vector_search(
     conn: sqlite3.Connection,
-    query_embedding,  # type: ignore[type-arg]
+    query_embedding: npt.NDArray[np.float32],
     limit: int = 100,
 ) -> list[tuple[str, int]]:
     """Load all non-NULL embeddings, compute cosine similarity, return top results."""
-    import numpy as np
-
     rows = conn.execute(
         "SELECT id, embedding FROM guardrails WHERE embedding IS NOT NULL"
     ).fetchall()
@@ -77,8 +78,8 @@ def vector_search(
 def hybrid_search(
     db_path: Path,
     query: str,
-    model=None,
-    filters: dict | None = None,  # type: ignore[type-arg]
+    model: Any = None,
+    filters: dict[str, str | None] | None = None,
     top: int = 10,
 ) -> tuple[list[SearchResult], int]:
     """Run hybrid BM25+vector search with RRF fusion and filters."""
@@ -124,26 +125,33 @@ def hybrid_search(
 
             # Apply post-ranking filters
             if filters:
-                if filters.get("status") and row[3] != filters["status"]:
+                status_filter: str | None = filters.get("status")
+                if status_filter and row[3] != status_filter:
                     continue
-                if filters.get("severity") and row[2] != filters["severity"]:
+                severity_filter: str | None = filters.get("severity")
+                if severity_filter and row[2] != severity_filter:
                     continue
-                if filters.get("scope"):
-                    row_scope = orjson.loads(row[5])
-                    if filters["scope"] not in row_scope:
+                scope_filter: str | None = filters.get("scope")
+                if scope_filter:
+                    row_scope: list[str] = orjson.loads(row[5])
+                    if scope_filter not in row_scope:
                         continue
-                if filters.get("applies_to"):
-                    row_applies = orjson.loads(row[6])
-                    if filters["applies_to"] not in row_applies:
+                applies_filter: str | None = filters.get("applies_to")
+                if applies_filter:
+                    row_applies: list[str] = orjson.loads(row[6])
+                    if applies_filter not in row_applies:
                         continue
-                if filters.get("lifecycle_stage"):
-                    row_lc = orjson.loads(row[7])
-                    if filters["lifecycle_stage"] not in row_lc:
+                lc_filter: str | None = filters.get("lifecycle_stage")
+                if lc_filter:
+                    row_lc: list[str] = orjson.loads(row[7])
+                    if lc_filter not in row_lc:
                         continue
-                if filters.get("owner") and row[8] != filters["owner"]:
+                owner_filter: str | None = filters.get("owner")
+                if owner_filter and row[8] != owner_filter:
                     continue
 
-            snippet = row[4][:150] if row[4] else ""
+            snippet: str = row[4][:150] if row[4] else ""
+            sources = match_sources_map.get(rd.doc_id, [])
             results.append(
                 SearchResult(
                     id=row[0],
@@ -151,7 +159,7 @@ def hybrid_search(
                     severity=row[2],
                     status=row[3],
                     score=round(rd.rrf, 6),
-                    match_sources=match_sources_map.get(rd.doc_id, []),
+                    match_sources=sources,  # type: ignore[arg-type]
                     snippet=snippet,
                 )
             )

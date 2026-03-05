@@ -12,8 +12,8 @@ from archguard.core.store import load_guardrails, load_links, load_references, l
 class ValidationResult:
     """Collects all validation issues found."""
 
-    errors: list[str] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=lambda: [])
+    warnings: list[str] = field(default_factory=lambda: [])
 
     @property
     def ok(self) -> bool:
