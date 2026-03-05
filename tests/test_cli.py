@@ -465,12 +465,12 @@ class TestHelpFlags:
     def test_main_help(self) -> None:
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0
-        assert "guardrails" in result.output.lower()
+        assert "guardrails" in _strip_ansi(result.output).lower()
 
     def test_search_help(self) -> None:
         result = runner.invoke(app, ["search", "--help"])
         assert result.exit_code == 0
-        assert "--status" in result.output
+        assert "--status" in _strip_ansi(result.output)
 
 
 # ---------------------------------------------------------------------------
