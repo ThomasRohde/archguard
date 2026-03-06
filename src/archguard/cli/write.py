@@ -141,16 +141,22 @@ def add(
     # Rebuild index
     ensure_index(data_dir)
 
-    # Check RFC 2119 severity consistency
-    from archguard.core.validator import check_severity_consistency
+    # Check authoring quality (RFC 2119 consistency + semantic warnings)
+    from archguard.core.validator import check_authoring_quality, check_severity_consistency
 
-    severity_warnings = check_severity_consistency(guardrail)
+    all_warnings = check_severity_consistency(guardrail)
+
+    # For must+active guardrails, pass inline refs for reference-presence check
+    inline_refs = refs_created if refs_created else None
+    all_warnings.extend(
+        check_authoring_quality(guardrail, references=inline_refs),
+    )
 
     sys.stdout.write(
         envelope(
             "add",
             {"guardrail": guardrail.model_dump(), "references": refs_created},
-            warnings=severity_warnings or None,
+            warnings=all_warnings or None,
         )
         + "\n"
     )
@@ -248,16 +254,24 @@ def update(
 
     ensure_index(data_dir)
 
-    # Check RFC 2119 severity consistency
-    from archguard.core.validator import check_severity_consistency
+    # Check authoring quality (RFC 2119 consistency + semantic warnings)
+    from archguard.core.validator import check_authoring_quality, check_severity_consistency
 
-    severity_warnings = check_severity_consistency(guardrails[idx])
+    all_warnings = check_severity_consistency(guardrails[idx])
+
+    # Load references for must+active reference-presence check
+    from archguard.core.store import load_references
+
+    refs = [r for r in load_references(data_dir) if r.guardrail_id == guardrail_id]
+    all_warnings.extend(
+        check_authoring_quality(guardrails[idx], references=refs),
+    )
 
     sys.stdout.write(
         envelope(
             "update",
             {"guardrail": guardrails[idx].model_dump()},
-            warnings=severity_warnings or None,
+            warnings=all_warnings or None,
         )
         + "\n"
     )

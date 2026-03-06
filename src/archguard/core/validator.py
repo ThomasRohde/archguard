@@ -69,6 +69,79 @@ def check_severity_consistency(guardrail: Guardrail) -> list[str]:
     return warnings
 
 
+def check_authoring_quality(
+    guardrail: Guardrail,
+    references: list | None = None,
+) -> list[str]:
+    """Return warnings for common authoring quality issues.
+
+    These are non-fatal: the guardrail is structurally valid but may be
+    semantically weak. Designed to help weaker models self-correct.
+    """
+    warnings: list[str] = []
+    gid = guardrail.id[:8]
+
+    # Vague title: multi-sentence, or contains weak verbs
+    if ". " in guardrail.title or "? " in guardrail.title:
+        warnings.append(
+            f"Guardrail {gid}: title contains multiple sentences. "
+            f"Prefer one short imperative rule."
+        )
+    _VAGUE_TITLE_RE = re.compile(
+        r"\b(optimize|improve|support|ensure|consider|address|handle|manage)\b",
+        re.IGNORECASE,
+    )
+    if _VAGUE_TITLE_RE.search(guardrail.title):
+        warnings.append(
+            f"Guardrail {gid}: title uses vague verb "
+            f"('{_VAGUE_TITLE_RE.search(guardrail.title).group()}'). "  # type: ignore[union-attr]
+            f"Prefer specific, testable language."
+        )
+
+    # Guidance missing normative language
+    _NORMATIVE_RE = re.compile(
+        r"\b(must|shall|should|may|required|recommended)\b", re.IGNORECASE,
+    )
+    if not _NORMATIVE_RE.search(guardrail.guidance):
+        warnings.append(
+            f"Guardrail {gid}: guidance contains no normative language "
+            f"(must/should/may). State the rule clearly."
+        )
+
+    # Rationale repeats guidance (high overlap)
+    if len(guardrail.rationale) > 20 and len(guardrail.guidance) > 20:
+        # Simple word-overlap check
+        rat_words = set(guardrail.rationale.lower().split())
+        guide_words = set(guardrail.guidance.lower().split())
+        if len(rat_words) >= 5 and len(guide_words) >= 5:
+            overlap = len(rat_words & guide_words) / min(len(rat_words), len(guide_words))
+            if overlap > 0.7:
+                warnings.append(
+                    f"Guardrail {gid}: rationale overlaps heavily with guidance. "
+                    f"Rationale should explain why, not restate the rule."
+                )
+
+    # Placeholder owner
+    _PLACEHOLDER_OWNERS = {"tbd", "todo", "n/a", "unknown", "none", "placeholder", "xxx"}
+    if guardrail.owner.lower().strip() in _PLACEHOLDER_OWNERS:
+        warnings.append(
+            f"Guardrail {gid}: owner is a placeholder ('{guardrail.owner}'). "
+            f"Assign an accountable role or team."
+        )
+
+    # must severity without references
+    if guardrail.severity == "must" and guardrail.status == "active":
+        has_refs = references is not None and len(references) > 0
+        if not has_refs:
+            warnings.append(
+                f"Guardrail {gid}: severity is 'must' and status is 'active' "
+                f"but no references found. Mandatory rules should cite "
+                f"their authoritative source."
+            )
+
+    return warnings
+
+
 @dataclass
 class ValidationResult:
     """Collects all validation issues found."""

@@ -7,7 +7,7 @@ from typing import Annotated, Any
 
 import typer
 
-from archguard.cli import app
+from archguard.cli import app, handle_error, state
 from archguard.output.json import (
     ERROR_EXIT_MAP,
     SCHEMA_VERSION,
@@ -15,7 +15,7 @@ from archguard.output.json import (
 )
 
 
-def _build_guide() -> dict[str, Any]:
+def _build_guide(data_dir: str = "guardrails") -> dict[str, Any]:
     """Build the full guide payload — command catalog, error taxonomy, examples."""
     from archguard import __version__
 
@@ -38,6 +38,7 @@ def _build_guide() -> dict[str, Any]:
             "breaking_changes": "major",
         },
         "agent_bootstrap": _agent_bootstrap(),
+        "vocabulary": _vocabulary(data_dir),
         "field_semantics": _field_semantics(),
         "capture_workflow": _capture_workflow(),
         "quality_criteria": _quality_criteria(),
@@ -129,6 +130,40 @@ def _build_guide() -> dict[str, Any]:
         "examples": _examples(),
         "good_and_bad_examples": _good_and_bad_examples(),
     }
+
+
+def _vocabulary(data_dir: str) -> dict[str, Any]:
+    """Canonical vocabulary — all allowed enum values in one place."""
+    from pathlib import Path
+
+    from archguard.core.store import load_taxonomy
+
+    vocab: dict[str, Any] = {
+        "severity": ["must", "should", "may"],
+        "status": ["draft", "active", "deprecated", "superseded"],
+        "ref_type": ["adr", "policy", "standard", "regulation", "pattern", "document"],
+        "rel_type": ["supports", "conflicts", "refines", "implements", "requires"],
+        "lifecycle_stage": ["acquire", "build", "operate", "retire"],
+    }
+
+    taxonomy = load_taxonomy(Path(data_dir))
+    if taxonomy:
+        vocab["scope"] = {
+            "source": "taxonomy.json",
+            "values": taxonomy,
+            "rule": "Use only these values. Do not invent scope labels.",
+        }
+    else:
+        vocab["scope"] = {
+            "source": "unconstrained",
+            "values": [],
+            "rule": (
+                "No taxonomy configured — scope is free-form. "
+                "Use consistent, lowercase, hyphenated labels."
+            ),
+        }
+
+    return vocab
 
 
 def _agent_bootstrap() -> dict[str, Any]:
@@ -873,6 +908,50 @@ def _examples() -> list[dict[str, Any]]:
     ]
 
 
+def _compact_task(task: str, data_dir: str) -> dict[str, Any]:
+    """Return a task-focused slice of the guide for token-constrained agents."""
+    if task == "add-guardrail":
+        return {
+            "task": "add-guardrail",
+            "workflow": _capture_workflow(),
+            "vocabulary": _vocabulary(data_dir),
+            "field_semantics": _field_semantics(),
+            "quality_criteria": _quality_criteria(),
+            "anti_patterns": _anti_patterns(),
+            "when_not_to_add": _when_not_to_add(),
+            "good_and_bad_examples": _good_and_bad_examples(),
+            "command": _commands()["add"],
+            "hint": "Call 'archguard add --schema' for the exact JSON schema.",
+        }
+    if task == "check-decision":
+        return {
+            "task": "check-decision",
+            "vocabulary": _vocabulary(data_dir),
+            "command": _commands()["check"],
+            "hint": "Call 'archguard check --schema' for the exact JSON schema.",
+        }
+    if task == "add-reference":
+        return {
+            "task": "add-reference",
+            "vocabulary": _vocabulary(data_dir),
+            "field_semantics": {
+                "references": _field_semantics()["references"],
+            },
+            "command": _commands()["ref-add"],
+        }
+    if task == "link-guardrails":
+        return {
+            "task": "link-guardrails",
+            "vocabulary": _vocabulary(data_dir),
+            "command": _commands()["link"],
+        }
+    msg = (
+        f"Unknown task '{task}'. "
+        f"Available: add-guardrail, check-decision, add-reference, link-guardrails"
+    )
+    raise ValueError(msg)
+
+
 @app.command()
 def guide(
     pretty: Annotated[
@@ -882,6 +961,16 @@ def guide(
             help="Pretty-print the JSON output for human reading",
         ),
     ] = False,
+    task: Annotated[
+        str,
+        typer.Option(
+            "--task",
+            help=(
+                "Return a compact, task-focused slice of the guide. "
+                "Values: add-guardrail, check-decision, add-reference, link-guardrails"
+            ),
+        ),
+    ] = "",
     explain: Annotated[
         bool,
         typer.Option(
@@ -894,6 +983,8 @@ def guide(
 
     Includes commands, flags, error codes, and examples.
     Call once, cache the result.
+
+    Use --task for a compact, task-focused subset (fewer tokens).
     """
     if explain:
         sys.stderr.write(
@@ -901,8 +992,25 @@ def guide(
             "every command, flag, error code, exit code, and usage "
             "example. An agent calls this once to bootstrap zero-shot "
             "CLI usage.\n"
+            "\n"
+            "Use --task to get a compact subset for a specific workflow:\n"
+            "  --task add-guardrail    Field contract, vocabulary, examples, anti-patterns\n"
+            "  --task check-decision   Check command schema and vocabulary\n"
+            "  --task add-reference    Reference types and command schema\n"
+            "  --task link-guardrails  Relationship types and command schema\n"
         )
         raise SystemExit(0)
 
-    guide_payload = _build_guide()
+    data_dir = state.data_dir
+
+    if task:
+        try:
+            compact_payload = _compact_task(task, data_dir)
+        except ValueError as e:
+            handle_error("guide", "ERR_VALIDATION", str(e))
+            return
+        sys.stdout.write(envelope("guide", compact_payload) + "\n")
+        return
+
+    guide_payload = _build_guide(data_dir)
     sys.stdout.write(envelope("guide", guide_payload) + "\n")
