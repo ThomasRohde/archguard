@@ -54,7 +54,7 @@ class Link(BaseModel):
 
     from_id: str
     to_id: str
-    rel_type: Literal["supports", "conflicts", "refines", "implements"]
+    rel_type: Literal["supports", "conflicts", "refines", "implements", "requires"]
     note: str = ""
 
 

@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 
 from archguard.cli import app
 
-runner = CliRunner()
+runner = CliRunner(env={"LLM": ""})
 
 ADD_INPUT = json.dumps(
     {
@@ -36,6 +36,8 @@ ADD_INPUT_2 = json.dumps(
         "owner": "Security Team",
     }
 )
+
+llm_runner = CliRunner(env={"LLM": "true"})
 
 
 def _init_dir(tmp_path):
@@ -141,6 +143,20 @@ class TestExportCSV:
         assert len(rows) == 2
 
 
+class TestExportCSVLLM:
+    """CSV export returns a JSON envelope when LLM=true."""
+
+    def test_csv_envelope(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        _add_guardrail(dd)
+        result = llm_runner.invoke(app, ["--data-dir", dd, "export", "--format", "csv"])
+        assert result.exit_code == 0
+        data = orjson.loads(result.output)
+        assert data["ok"] is True
+        assert data["result"]["format"] == "csv"
+        assert "Prefer managed services" in data["result"]["content"]
+
+
 class TestExportMarkdown:
     def test_export_markdown_structure(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -156,6 +172,20 @@ class TestExportMarkdown:
         _add_guardrail(dd)
         result = runner.invoke(app, ["--data-dir", dd, "export", "--format", "markdown"])
         assert "## it-platform" in result.output
+
+
+class TestExportMarkdownLLM:
+    """Markdown export returns a JSON envelope when LLM=true."""
+
+    def test_markdown_envelope(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        _add_guardrail(dd)
+        result = llm_runner.invoke(app, ["--data-dir", dd, "export", "--format", "markdown"])
+        assert result.exit_code == 0
+        data = orjson.loads(result.output)
+        assert data["ok"] is True
+        assert data["result"]["format"] == "markdown"
+        assert "# Architecture Guardrails" in data["result"]["content"]
 
 
 class TestExportExplain:

@@ -75,7 +75,7 @@ def envelope(
         "warnings": warnings or [],
         "metrics": {"duration_ms": _elapsed_ms()},
     }
-    return orjson.dumps(payload).decode()
+    return orjson.dumps(payload, option=orjson.OPT_INDENT_2).decode()
 
 
 def error_envelope(

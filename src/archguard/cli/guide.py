@@ -310,7 +310,11 @@ def _commands() -> dict[str, Any]:
                 "Create a typed relationship between two guardrails."
             ),
             "args": ["FROM_ID", "TO_ID"],
-            "flags": ["--rel TYPE", "--note TEXT", "--explain"],
+            "flags": [
+                "--rel TYPE (supports|conflicts|refines|implements|requires)",
+                "--note TEXT",
+                "--explain",
+            ],
             "stdin": None,
             "result_fields": ["link"],
         },
@@ -402,7 +406,9 @@ def _commands() -> dict[str, Any]:
             "group": "maintenance",
             "mutates": False,
             "description": (
-                "Export guardrails in JSON, CSV, or Markdown format."
+                "Export guardrails in JSON, CSV, or Markdown format. "
+                "When LLM=true, all formats return the standard JSON "
+                "envelope with result.content (string) and result.format."
             ),
             "args": [],
             "flags": [
@@ -410,7 +416,7 @@ def _commands() -> dict[str, Any]:
                 "--scope", "--explain",
             ],
             "stdin": None,
-            "result_fields": ["guardrails[]"],
+            "result_fields": ["guardrails[]", "content", "format"],
         },
         "guide": {
             "group": "meta",
@@ -650,15 +656,4 @@ def guide(
         raise SystemExit(0)
 
     guide_payload = _build_guide()
-
-    if pretty:
-        import orjson
-
-        raw = envelope("guide", guide_payload)
-        parsed = orjson.loads(raw)
-        sys.stdout.write(
-            orjson.dumps(parsed, option=orjson.OPT_INDENT_2).decode()
-            + "\n"
-        )
-    else:
-        sys.stdout.write(envelope("guide", guide_payload) + "\n")
+    sys.stdout.write(envelope("guide", guide_payload) + "\n")

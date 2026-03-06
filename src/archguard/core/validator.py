@@ -2,10 +2,71 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from archguard.core.models import Guardrail
 from archguard.core.store import load_guardrails, load_links, load_references, load_taxonomy
+
+# ---------------------------------------------------------------------------
+# RFC 2119 severity-consistency check
+# ---------------------------------------------------------------------------
+
+# Word-boundary patterns for RFC 2119 keywords (case-insensitive).
+# Groups: positive obligation ("must", "shall", "required"),
+#         recommendation ("should", "recommended"),
+#         permission ("may", "optional").
+_RFC2119_POSITIVE = re.compile(
+    r"\b(must(?:\s+not)?|shall(?:\s+not)?|required|not\s+required)\b", re.IGNORECASE,
+)
+_RFC2119_RECOMMEND = re.compile(
+    r"\b(should(?:\s+not)?|recommended|not\s+recommended)\b", re.IGNORECASE,
+)
+_RFC2119_OPTIONAL = re.compile(
+    r"\b(may(?:\s+not)?|optional)\b", re.IGNORECASE,
+)
+
+# Which keyword families conflict with each declared severity level.
+# A "must" guardrail should not use "should"/"may" language (weakens the mandate).
+# A "should" guardrail should not use "must" (overstates) or "may" (understates).
+# A "may" guardrail should not use "must"/"should" (overstates).
+_CONFLICTING: dict[str, list[tuple[re.Pattern[str], str]]] = {
+    "must": [
+        (_RFC2119_RECOMMEND, "should/recommended"),
+        (_RFC2119_OPTIONAL, "may/optional"),
+    ],
+    "should": [
+        (_RFC2119_POSITIVE, "must/shall/required"),
+        (_RFC2119_OPTIONAL, "may/optional"),
+    ],
+    "may": [
+        (_RFC2119_POSITIVE, "must/shall/required"),
+        (_RFC2119_RECOMMEND, "should/recommended"),
+    ],
+}
+
+_TEXT_FIELDS = ("guidance", "rationale", "exceptions", "consequences")
+
+
+def check_severity_consistency(guardrail: Guardrail) -> list[str]:
+    """Return warnings if the guardrail text uses RFC 2119 keywords that conflict
+    with its declared severity level."""
+    warnings: list[str] = []
+    conflicts = _CONFLICTING.get(guardrail.severity, [])
+    for field_name in _TEXT_FIELDS:
+        text: str = getattr(guardrail, field_name, "")
+        if not text:
+            continue
+        for pattern, label in conflicts:
+            match = pattern.search(text)
+            if match:
+                warnings.append(
+                    f"Guardrail {guardrail.id[:8]} ({guardrail.severity}): "
+                    f"{field_name} contains '{match.group()}' "
+                    f"(conflicting {label} language)"
+                )
+    return warnings
 
 
 @dataclass
@@ -58,6 +119,10 @@ def validate_corpus(data_dir: Path) -> ValidationResult:
                     result.errors.append(
                         f"Guardrail {g.id}: scope '{s}' not in taxonomy. Allowed: {taxonomy}"
                     )
+
+    # Check severity vs. text consistency (RFC 2119 keyword conflicts)
+    for g in guardrails:
+        result.warnings.extend(check_severity_consistency(g))
 
     # Load and check references
     try:

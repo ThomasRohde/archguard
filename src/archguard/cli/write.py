@@ -125,8 +125,18 @@ def add(
     # Rebuild index
     ensure_index(data_dir)
 
+    # Check RFC 2119 severity consistency
+    from archguard.core.validator import check_severity_consistency
+
+    severity_warnings = check_severity_consistency(guardrail)
+
     sys.stdout.write(
-        envelope("add", {"guardrail": guardrail.model_dump(), "references": refs_created}) + "\n"
+        envelope(
+            "add",
+            {"guardrail": guardrail.model_dump(), "references": refs_created},
+            warnings=severity_warnings or None,
+        )
+        + "\n"
     )
 
 
@@ -208,8 +218,18 @@ def update(
     guardrails[idx] = Guardrail.model_validate(updated_data)
     rewrite_jsonl(data_dir / "guardrails.jsonl", guardrails)
 
+    # Check RFC 2119 severity consistency
+    from archguard.core.validator import check_severity_consistency
+
+    severity_warnings = check_severity_consistency(guardrails[idx])
+
     sys.stdout.write(
-        envelope("update", {"guardrail": guardrails[idx].model_dump()}) + "\n"
+        envelope(
+            "update",
+            {"guardrail": guardrails[idx].model_dump()},
+            warnings=severity_warnings or None,
+        )
+        + "\n"
     )
 
 
@@ -284,7 +304,10 @@ def link(
     to_id: Annotated[str, typer.Argument(help="ULID of the target guardrail")],
     rel: Annotated[
         str,
-        typer.Option("--rel", help="Relationship type: supports, conflicts, refines, implements"),
+        typer.Option(
+            "--rel",
+            help="Relationship type: supports, conflicts, refines, implements, requires",
+        ),
     ],
     note: Annotated[str, typer.Option("--note", help="Optional annotation")] = "",
     explain: Annotated[
@@ -305,7 +328,7 @@ def link(
     data_dir = Path(state.data_dir)
 
     # Validate rel type
-    valid_rels = {"supports", "conflicts", "refines", "implements"}
+    valid_rels = {"supports", "conflicts", "refines", "implements", "requires"}
     if rel not in valid_rels:
         handle_error(
             "link", "ERR_VALIDATION",

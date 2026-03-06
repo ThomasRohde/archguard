@@ -11,7 +11,7 @@ from typing import Annotated
 import typer
 
 from archguard.cli import app, handle_error, state
-from archguard.output.json import envelope
+from archguard.output.json import envelope, is_llm_mode
 
 
 @app.command()
@@ -80,11 +80,23 @@ def export(
                 "created_at": g.created_at,
                 "updated_at": g.updated_at,
             })
-        sys.stdout.write(buf.getvalue())
+        content = buf.getvalue()
+        if is_llm_mode():
+            sys.stdout.write(
+                envelope("export", {"content": content, "format": "csv"}) + "\n"
+            )
+        else:
+            sys.stdout.write(content)
     elif format == "markdown":
         from archguard.core.store import load_references
         from archguard.output.markdown import format_export_md
         references = load_references(data_dir)
-        sys.stdout.write(format_export_md(guardrails, references))
+        content = format_export_md(guardrails, references)
+        if is_llm_mode():
+            sys.stdout.write(
+                envelope("export", {"content": content, "format": "markdown"}) + "\n"
+            )
+        else:
+            sys.stdout.write(content)
     else:
         handle_error("export", "ERR_VALIDATION_FORMAT", f"Unknown format: {format}")
