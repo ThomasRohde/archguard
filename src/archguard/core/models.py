@@ -14,22 +14,26 @@ from pydantic import BaseModel, Field
 class Guardrail(BaseModel):
     """A named, scoped architectural constraint."""
 
-    id: str = Field(description="ULID identifier")
-    title: str = Field(min_length=1, max_length=200)
+    id: str = Field(..., description="ULID identifier")
+    title: str = Field(..., min_length=1, max_length=200)
     status: Literal["draft", "active", "deprecated", "superseded"]
     severity: Literal["must", "should", "may"]
-    rationale: str = Field(min_length=1)
-    guidance: str = Field(min_length=1)
+    rationale: str = Field(..., min_length=1)
+    guidance: str = Field(..., min_length=1)
     exceptions: str = Field(default="")
     consequences: str = Field(default="")
-    scope: list[str] = Field(min_length=1, description="Validated against taxonomy.json at runtime")
-    applies_to: list[str] = Field(min_length=1, description="Free-form tags (not validated against taxonomy)")
+    scope: list[str] = Field(
+        ..., min_length=1, description="Validated against taxonomy.json at runtime",
+    )
+    applies_to: list[str] = Field(
+        ..., min_length=1, description="Free-form tags (not validated against taxonomy)",
+    )
     lifecycle_stage: list[str] = Field(default=["acquire", "build", "operate", "retire"])
-    owner: str = Field(min_length=1)
+    owner: str = Field(..., min_length=1)
     review_date: str | None = Field(default=None, description="ISO 8601 date")
     superseded_by: str | None = Field(default=None)
-    created_at: str = Field(description="ISO 8601 datetime")
-    updated_at: str = Field(description="ISO 8601 datetime")
+    created_at: str = Field(..., description="ISO 8601 datetime")
+    updated_at: str = Field(..., description="ISO 8601 datetime")
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -62,17 +66,17 @@ class Link(BaseModel):
 class GuardrailCreate(BaseModel):
     """Input for creating a new guardrail. ID and timestamps are generated server-side."""
 
-    title: str = Field(min_length=1, max_length=200)
+    title: str = Field(..., min_length=1, max_length=200)
     status: Literal["draft", "active", "deprecated", "superseded"] = "draft"
     severity: Literal["must", "should", "may"]
-    rationale: str = Field(min_length=1)
-    guidance: str = Field(min_length=1)
+    rationale: str = Field(..., min_length=1)
+    guidance: str = Field(..., min_length=1)
     exceptions: str = Field(default="")
     consequences: str = Field(default="")
-    scope: list[str] = Field(min_length=1)
-    applies_to: list[str] = Field(min_length=1)
+    scope: list[str] = Field(..., min_length=1)
+    applies_to: list[str] = Field(..., min_length=1)
     lifecycle_stage: list[str] = Field(default=["acquire", "build", "operate", "retire"])
-    owner: str = Field(min_length=1)
+    owner: str = Field(..., min_length=1)
     review_date: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     references: list[ReferenceCreate] = Field(default_factory=lambda: [])
@@ -120,7 +124,9 @@ class GuardrailPatch(BaseModel):
 class CheckContext(BaseModel):
     """Input for checking a decision against the guardrail corpus."""
 
-    decision: str = Field(min_length=1, description="The proposed architectural decision to check")
+    decision: str = Field(
+        ..., min_length=1, description="The proposed architectural decision to check",
+    )
     scope: list[str] = Field(default_factory=list, description="Scope tags to filter by")
     applies_to: list[str] = Field(default_factory=list, description="Applies-to tags to filter by")
     lifecycle_stage: str | None = Field(default=None, description="Lifecycle stage to filter by")

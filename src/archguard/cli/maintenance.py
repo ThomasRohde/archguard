@@ -70,7 +70,10 @@ def stats(
 
 @app.command(name="review-due")
 def review_due(
-    before: Annotated[str | None, typer.Option("--before", help="ISO 8601 date cutoff (default: 30 days from today)")] = None,
+    before: Annotated[
+        str | None,
+        typer.Option("--before", help="ISO 8601 date cutoff (default: 30 days from today)"),
+    ] = None,
     explain: Annotated[
         bool, typer.Option("--explain", help="Explain what this command does")
     ] = False,
@@ -93,7 +96,9 @@ def review_due(
     guardrails = load_guardrails(data_dir)
 
     from datetime import timedelta
-    cutoff = before if before is not None else (datetime.now(UTC) + timedelta(days=30)).strftime("%Y-%m-%d")
+
+    default_cutoff = (datetime.now(UTC) + timedelta(days=30)).strftime("%Y-%m-%d")
+    cutoff = before if before is not None else default_cutoff
 
     # Filter guardrails with review_date <= cutoff
     due = [g for g in guardrails if g.review_date is not None and g.review_date <= cutoff]

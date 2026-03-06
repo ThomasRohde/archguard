@@ -56,7 +56,9 @@ def search(
 
     filters = _build_filters(status, severity, scope, applies_to, lifecycle_stage, owner)
 
-    results, total = hybrid_search(db_path, query, model=model, filters=filters, top=top, min_score=min_score)
+    results, total = hybrid_search(
+        db_path, query, model=model, filters=filters, top=top, min_score=min_score,
+    )
 
     result_payload = {
         "results": [r.model_dump() for r in results],
