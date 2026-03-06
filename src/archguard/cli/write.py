@@ -29,7 +29,8 @@ def add(
     if schema:
         from archguard.core.models import GuardrailCreate
 
-        sys.stdout.write(GuardrailCreate.model_json_schema_str() + "\n")
+        schema_data = GuardrailCreate.model_json_schema()
+        sys.stdout.write(envelope("add", {"schema": schema_data}) + "\n")
         raise SystemExit(0)
 
     import orjson
@@ -329,6 +330,78 @@ def link(
 
     sys.stdout.write(
         envelope("link", {"link": link_record.model_dump()}) + "\n"
+    )
+
+
+@app.command()
+def delete(
+    guardrail_id: Annotated[str, typer.Argument(help="ULID of the guardrail to delete")],
+    confirm: Annotated[bool, typer.Option("--confirm", help="Confirm deletion")] = False,
+    explain: Annotated[
+        bool, typer.Option("--explain", help="Explain what this command does")
+    ] = False,
+) -> None:
+    """Permanently delete a guardrail and its associated references and links."""
+    if explain:
+        sys.stdout.write(
+            "delete removes a guardrail from guardrails.jsonl and cleans up "
+            "associated references and links. Requires --confirm flag. "
+            "Rebuilds the index afterward.\n"
+        )
+        raise SystemExit(0)
+
+    if not confirm:
+        handle_error(
+            "delete", "ERR_VALIDATION",
+            "Deletion requires --confirm flag",
+        )
+
+    from archguard.core.index import ensure_index
+    from archguard.core.store import (
+        load_guardrails,
+        load_links,
+        load_references,
+        rewrite_jsonl,
+    )
+
+    data_dir = Path(state.data_dir)
+    guardrails = load_guardrails(data_dir)
+
+    target = next((g for g in guardrails if g.id == guardrail_id), None)
+    if target is None:
+        handle_error("delete", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{guardrail_id}' not found")
+        return
+
+    # Remove guardrail
+    guardrails = [g for g in guardrails if g.id != guardrail_id]
+    rewrite_jsonl(data_dir / "guardrails.jsonl", guardrails)
+
+    # Clean up references
+    refs = load_references(data_dir)
+    refs_removed = sum(1 for r in refs if r.guardrail_id == guardrail_id)
+    refs = [r for r in refs if r.guardrail_id != guardrail_id]
+    rewrite_jsonl(data_dir / "references.jsonl", refs)
+
+    # Clean up links
+    links = load_links(data_dir)
+    links_removed = sum(
+        1 for lnk in links if lnk.from_id == guardrail_id or lnk.to_id == guardrail_id
+    )
+    links = [
+        lnk for lnk in links
+        if lnk.from_id != guardrail_id and lnk.to_id != guardrail_id
+    ]
+    rewrite_jsonl(data_dir / "links.jsonl", links)
+
+    # Rebuild index
+    ensure_index(data_dir)
+
+    sys.stdout.write(
+        envelope("delete", {
+            "deleted": target.model_dump(),
+            "references_removed": refs_removed,
+            "links_removed": links_removed,
+        }) + "\n"
     )
 
 

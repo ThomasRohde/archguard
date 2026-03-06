@@ -39,6 +39,9 @@ def search(
         )
         raise SystemExit(0)
 
+    if not query.strip():
+        handle_error("search", "ERR_VALIDATION_INPUT", "Search query must not be empty")
+
     from archguard.core.index import ensure_index
     from archguard.core.search import hybrid_search
 
@@ -62,6 +65,9 @@ def search(
     if state.format == "table":
         from archguard.output.table import format_search_results
         sys.stdout.write(format_search_results(results, total, query))
+    elif state.format == "markdown":
+        from archguard.output.markdown import format_search_results_md
+        sys.stdout.write(format_search_results_md(results, total, query))
     else:
         sys.stdout.write(envelope("search", result_payload) + "\n")
 
@@ -247,7 +253,11 @@ def list_guardrails(
         sys.stdout.write(
             envelope(
                 "list",
-                {"guardrails": [g.model_dump() for g in guardrails], "total": total},
+                {
+                    "guardrails": [g.model_dump() for g in guardrails],
+                    "returned": len(guardrails),
+                    "total": total,
+                },
             )
             + "\n"
         )
@@ -269,6 +279,12 @@ def check(
             "and returns matching guardrails grouped by severity. "
             "The CLI does not judge compliance; it surfaces relevance.\n"
         )
+        raise SystemExit(0)
+    if schema:
+        from archguard.core.models import CheckContext
+
+        schema_data = CheckContext.model_json_schema()
+        sys.stdout.write(envelope("check", {"schema": schema_data}) + "\n")
         raise SystemExit(0)
 
     import orjson

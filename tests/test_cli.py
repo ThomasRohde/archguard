@@ -240,7 +240,8 @@ class TestAddCommand:
         result = runner.invoke(app, ["add", "--schema"])
         assert result.exit_code == 0
         out = orjson.loads(result.output)
-        assert "properties" in out
+        assert out["ok"] is True
+        assert "properties" in out["result"]["schema"]
 
 
 class TestGetCommand:
@@ -1199,7 +1200,7 @@ class TestGuideCommand:
         expected = {
             "init", "build", "validate", "search", "get", "list",
             "related", "check", "add", "update", "ref-add", "link",
-            "deprecate", "supersede", "stats", "review-due",
+            "delete", "deprecate", "supersede", "stats", "review-due",
             "deduplicate", "import", "export", "guide",
         }
         assert set(cmds.keys()) == expected

@@ -33,6 +33,7 @@ def init(
         raise SystemExit(0)
 
     data_dir = Path(state.data_dir)
+    already_exists = data_dir.exists()
     data_dir.mkdir(parents=True, exist_ok=True)
 
     # Create empty JSONL files
@@ -61,8 +62,16 @@ def init(
     if not gitignore.exists():
         gitignore.write_text(".guardrails.db\n")
 
+    warnings: list[str] = []
+    if already_exists:
+        warnings.append("Data directory already exists; existing data preserved")
+
     sys.stdout.write(
-        envelope("init", {"message": "Initialized guardrails repository", "path": str(data_dir)})
+        envelope(
+            "init",
+            {"message": "Initialized guardrails repository", "path": str(data_dir)},
+            warnings=warnings or None,
+        )
         + "\n"
     )
 

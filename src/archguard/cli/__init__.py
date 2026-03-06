@@ -5,7 +5,9 @@ from __future__ import annotations
 import sys
 from typing import Annotated, Any, NoReturn
 
+import click
 import typer
+from typer.core import TyperGroup
 
 from archguard.output.json import (
     error_envelope,
@@ -15,8 +17,87 @@ from archguard.output.json import (
     is_llm_mode,
 )
 
+
+class _FlexibleGroup(TyperGroup):
+    """Allow global options (--format, --quiet, --data-dir) after the subcommand."""
+
+    _VALUE_OPTS = frozenset(("--format", "-f", "--data-dir", "-d"))
+    _FLAG_OPTS = frozenset(("--quiet", "-q", "--version", "-V"))
+    _VALUE_PREFIXES = ("--format=", "--data-dir=")
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        # Find the subcommand (first non-option argument)
+        cmd_idx: int | None = None
+        i = 0
+        while i < len(args):
+            a = args[i]
+            if not a.startswith("-"):
+                cmd_idx = i
+                break
+            if a in self._VALUE_OPTS:
+                i += 2
+                continue
+            if a.startswith(self._VALUE_PREFIXES):
+                i += 1
+                continue
+            i += 1
+
+        if cmd_idx is None:
+            return super().parse_args(ctx, args)
+
+        before = list(args[:cmd_idx])
+        cmd_and_after = list(args[cmd_idx:])
+
+        # Discover which options the subcommand itself defines,
+        # so we don't steal them (e.g. export has its own --format).
+        cmd_name = cmd_and_after[0]
+        sub_cmd = self.commands.get(cmd_name) if self.commands else None
+        sub_opts: set[str] = set()
+        if sub_cmd:
+            for param in sub_cmd.params:
+                sub_opts.update(param.opts)
+                sub_opts.update(getattr(param, "secondary_opts", []))
+
+        # Move global options from after subcommand to before it
+        moved: list[str] = []
+        kept: list[str] = [cmd_and_after[0]]  # subcommand name
+        i = 1
+        end_of_opts = False
+        while i < len(cmd_and_after):
+            a = cmd_and_after[i]
+            if a == "--":
+                end_of_opts = True
+                kept.append(a)
+                i += 1
+                continue
+            if not end_of_opts and a in self._VALUE_OPTS and a not in sub_opts:
+                moved.append(a)
+                if i + 1 < len(cmd_and_after):
+                    i += 1
+                    moved.append(cmd_and_after[i])
+                i += 1
+                continue
+            if not end_of_opts and a in self._FLAG_OPTS and a not in sub_opts:
+                moved.append(a)
+                i += 1
+                continue
+            if (
+                not end_of_opts
+                and a.startswith(self._VALUE_PREFIXES)
+                and not any(a.startswith(f"{o}=") for o in sub_opts)
+            ):
+                moved.append(a)
+                i += 1
+                continue
+            kept.append(a)
+            i += 1
+
+        return super().parse_args(ctx, before + moved + kept)
+
+
 app = typer.Typer(
-    name="guardrails",
+    name="archguard",
+    cls=_FlexibleGroup,
     help=(
         "Architecture guardrails management CLI.\n\n"
         "Guardrails are the constraints, standards, and rules that govern how systems "
@@ -27,11 +108,11 @@ app = typer.Typer(
         "inference, no cloud sync. Agents provide the intelligence; this tool provides "
         "the governance knowledge.\n\n"
         "Quick start:\n\n"
-        "  guardrails init          Create data directory and taxonomy\n"
-        "  guardrails add < g.json  Add a guardrail from JSON on stdin\n"
-        "  guardrails search 'api'  Search guardrails by keyword\n"
-        "  guardrails check < d.json  Check a decision against the corpus\n"
-        "  guardrails guide         Full CLI schema for agent bootstrap\n"
+        "  archguard init          Create data directory and taxonomy\n"
+        "  archguard add < g.json  Add a guardrail from JSON on stdin\n"
+        "  archguard search 'api'  Search guardrails by keyword\n"
+        "  archguard check < d.json  Check a decision against the corpus\n"
+        "  archguard guide         Full CLI schema for agent bootstrap\n"
     ),
     no_args_is_help=True,
     pretty_exceptions_enable=False,

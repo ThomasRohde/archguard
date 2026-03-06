@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import date
 from typing import Any
 
-from archguard.core.models import Guardrail, Link, Reference
+from archguard.core.models import Guardrail, Link, Reference, SearchResult
 
 _SEVERITY_ORDER = {"must": 0, "should": 1, "may": 2}
 _SEVERITY_BADGE = {"must": "MUST", "should": "SHOULD", "may": "MAY"}
@@ -24,6 +24,22 @@ def _md_table(headers: list[str], rows: list[list[str]]) -> str:
 def _escape(text: str) -> str:
     """Escape pipe characters for Markdown table cells."""
     return text.replace("|", "\\|").replace("\n", " ")
+
+
+def format_search_results_md(results: list[SearchResult], total: int, query: str) -> str:
+    """Format search results as a Markdown table."""
+    headers = ["#", "Title", "Severity", "Score", "Sources"]
+    rows: list[list[str]] = []
+    for rank, r in enumerate(results, 1):
+        rows.append([
+            str(rank),
+            _escape(r.title),
+            r.severity,
+            f"{r.score:.2f}",
+            ", ".join(r.match_sources),
+        ])
+    table = _md_table(headers, rows)
+    return f"## Search: {_escape(query)}\n\n{table}\n\n*{total} total*\n"
 
 
 def format_guardrail_list_md(guardrails: list[Guardrail], total: int) -> str:

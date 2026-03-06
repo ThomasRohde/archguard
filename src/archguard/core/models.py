@@ -113,6 +113,27 @@ class GuardrailPatch(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Check input model
+# ---------------------------------------------------------------------------
+
+
+class CheckContext(BaseModel):
+    """Input for checking a decision against the guardrail corpus."""
+
+    decision: str = Field(min_length=1, description="The proposed architectural decision to check")
+    scope: list[str] = Field(default_factory=list, description="Scope tags to filter by")
+    applies_to: list[str] = Field(default_factory=list, description="Applies-to tags to filter by")
+    lifecycle_stage: str | None = Field(default=None, description="Lifecycle stage to filter by")
+    tags: list[str] = Field(default_factory=list, description="Additional search terms")
+
+    @classmethod
+    def model_json_schema_str(cls) -> str:
+        import orjson
+
+        return orjson.dumps(cls.model_json_schema(), option=orjson.OPT_INDENT_2).decode()
+
+
+# ---------------------------------------------------------------------------
 # Output models
 # ---------------------------------------------------------------------------
 

@@ -20,7 +20,7 @@ def _build_guide() -> dict[str, Any]:
     from archguard import __version__
 
     return {
-        "name": "guardrails",
+        "name": "archguard",
         "version": __version__,
         "description": (
             "Architecture guardrails management CLI — a single, queryable "
@@ -305,6 +305,18 @@ def _commands() -> dict[str, Any]:
             "stdin": None,
             "result_fields": ["link"],
         },
+        "delete": {
+            "group": "write",
+            "mutates": True,
+            "description": (
+                "Permanently delete a guardrail and its "
+                "associated references and links."
+            ),
+            "args": ["GUARDRAIL_ID"],
+            "flags": ["--confirm", "--explain"],
+            "stdin": None,
+            "result_fields": ["deleted", "references_removed", "links_removed"],
+        },
         "deprecate": {
             "group": "write",
             "mutates": True,
@@ -509,24 +521,24 @@ def _examples() -> list[dict[str, Any]]:
         "\"guidance\":\"Use managed offerings\","
         "\"scope\":[\"it-platform\"],"
         "\"applies_to\":[\"technology\"],"
-        "\"owner\":\"Platform Team\"}' | guardrails add"
+        "\"owner\":\"Platform Team\"}' | archguard add"
     )
     check_example = (
         "echo '{\"decision\":\"Use self-hosted Kafka\","
         "\"scope\":[\"it-platform\"],"
-        "\"tags\":[\"kafka\"]}' | guardrails check"
+        "\"tags\":[\"kafka\"]}' | archguard check"
     )
     update_example = (
         "echo '{\"severity\":\"must\","
         "\"guidance\":\"Updated guidance\"}'"
-        " | guardrails update 01HXYZ..."
+        " | archguard update 01HXYZ..."
     )
     return [
         {
             "title": "Bootstrap a new guardrails repository",
             "commands": [
-                "guardrails init --taxonomy taxonomy.json",
-                "guardrails build",
+                "archguard init --taxonomy taxonomy.json",
+                "archguard build",
             ],
         },
         {
@@ -536,14 +548,14 @@ def _examples() -> list[dict[str, Any]]:
         {
             "title": "Search guardrails",
             "commands": [
-                "guardrails search \"managed services\""
+                "archguard search \"managed services\""
                 " --severity should --top 5",
             ],
         },
         {
             "title": "Get full detail for a guardrail",
             "commands": [
-                "guardrails get 01HXYZ...",
+                "archguard get 01HXYZ...",
             ],
         },
         {
@@ -557,40 +569,40 @@ def _examples() -> list[dict[str, Any]]:
         {
             "title": "Link two guardrails",
             "commands": [
-                "guardrails link 01HXYZ_FROM 01HXYZ_TO"
+                "archguard link 01HXYZ_FROM 01HXYZ_TO"
                 " --rel supports --note 'Both reduce risk'",
             ],
         },
         {
             "title": "Deprecate and supersede",
             "commands": [
-                "guardrails deprecate 01HXYZ_OLD"
+                "archguard deprecate 01HXYZ_OLD"
                 " --reason 'Replaced by new policy'",
-                "guardrails supersede 01HXYZ_OLD --by 01HXYZ_NEW",
+                "archguard supersede 01HXYZ_OLD --by 01HXYZ_NEW",
             ],
         },
         {
             "title": "Review overdue guardrails",
             "commands": [
-                "guardrails review-due --before 2026-06-01",
+                "archguard review-due --before 2026-06-01",
             ],
         },
         {
             "title": "Export for Confluence",
             "commands": [
-                "guardrails export --format markdown --status active",
+                "archguard export --format markdown --status active",
             ],
         },
         {
             "title": "Bulk import from CSV",
             "commands": [
-                "guardrails import guardrails.csv",
+                "archguard import guardrails.csv",
             ],
         },
         {
             "title": "Detect duplicates",
             "commands": [
-                "guardrails deduplicate --threshold 0.8",
+                "archguard deduplicate --threshold 0.8",
             ],
         },
     ]
