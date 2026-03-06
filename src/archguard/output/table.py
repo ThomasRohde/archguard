@@ -27,8 +27,14 @@ def _status_style(status: str) -> str:
 
 
 def _capture(renderable: RenderableType) -> str:
+    import sys
+
+    from archguard.output.json import is_interactive, is_llm_mode
+
     sio = StringIO()
-    console = Console(file=sio, force_terminal=True, width=120)
+    # Respect isatty() and LLM=true: only force color when stdout is a real terminal
+    use_color = is_interactive() and not is_llm_mode()
+    console = Console(file=sio, force_terminal=use_color, width=120, no_color=not use_color)
     console.print(renderable)
     return sio.getvalue()
 

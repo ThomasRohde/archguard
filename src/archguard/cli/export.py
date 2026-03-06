@@ -12,6 +12,7 @@ import orjson
 import typer
 
 from archguard.cli import app, handle_error, state
+from archguard.output.json import envelope
 
 
 @app.command()
@@ -50,7 +51,9 @@ def export(
 
     # Dispatch on format
     if format == "json":
-        output = orjson.dumps([g.model_dump() for g in guardrails]).decode()
+        sys.stdout.write(
+            envelope("export", {"guardrails": [g.model_dump() for g in guardrails]}) + "\n"
+        )
     elif format == "csv":
         buf = io.StringIO()
         columns = [
@@ -72,14 +75,11 @@ def export(
                 "created_at": g.created_at,
                 "updated_at": g.updated_at,
             })
-        output = buf.getvalue()
+        sys.stdout.write(buf.getvalue())
     elif format == "markdown":
         from archguard.core.store import load_references
         from archguard.output.markdown import format_export_md
         references = load_references(data_dir)
-        output = format_export_md(guardrails, references)
+        sys.stdout.write(format_export_md(guardrails, references))
     else:
-        handle_error(20, "invalid_format", f"Unknown format: {format}")
-        return
-
-    sys.stdout.write(output)
+        handle_error("export", "ERR_VALIDATION_FORMAT", f"Unknown format: {format}")

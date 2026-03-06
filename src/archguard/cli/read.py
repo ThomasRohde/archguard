@@ -9,6 +9,7 @@ from typing import Annotated, Any
 import typer
 
 from archguard.cli import app, handle_error, state
+from archguard.output.json import envelope
 
 
 @app.command()
@@ -39,7 +40,6 @@ def search(
         raise SystemExit(0)
 
     from archguard.core.index import ensure_index
-    from archguard.core.models import SearchResponse
     from archguard.core.search import hybrid_search
 
     data_dir = Path(state.data_dir)
@@ -52,18 +52,18 @@ def search(
 
     results, total = hybrid_search(db_path, query, model=model, filters=filters, top=top)
 
-    response = SearchResponse(
-        results=results,
-        total=total,
-        query=query,
-        filters_applied={k: v for k, v in filters.items() if v is not None} if filters else {},
-    )
+    result_payload = {
+        "results": [r.model_dump() for r in results],
+        "total": total,
+        "query": query,
+        "filters_applied": {k: v for k, v in filters.items() if v is not None} if filters else {},
+    }
 
     if state.format == "table":
         from archguard.output.table import format_search_results
         sys.stdout.write(format_search_results(results, total, query))
     else:
-        sys.stdout.write(response.model_dump_json() + "\n")
+        sys.stdout.write(envelope("search", result_payload) + "\n")
 
 
 @app.command()
@@ -81,14 +81,13 @@ def get(
         raise SystemExit(0)
 
     from archguard.core.store import load_guardrails, load_links, load_references
-    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
 
     guardrail = next((g for g in guardrails if g.id == guardrail_id), None)
     if guardrail is None:
-        handle_error(10, "not_found", f"Guardrail '{guardrail_id}' not found")
+        handle_error("get", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{guardrail_id}' not found")
         return
 
     refs_list = load_references(data_dir)
@@ -114,7 +113,7 @@ def get(
             "references": ref_dicts,
             "links": link_dicts,
         }
-        sys.stdout.write(success_response(payload) + "\n")
+        sys.stdout.write(envelope("get", payload) + "\n")
 
 
 @app.command()
@@ -133,7 +132,6 @@ def related(
         raise SystemExit(0)
 
     from archguard.core.store import load_guardrails, load_links
-    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
@@ -142,7 +140,7 @@ def related(
     # Verify target guardrail exists
     target = next((g for g in guardrails if g.id == guardrail_id), None)
     if target is None:
-        handle_error(10, "not_found", f"Guardrail '{guardrail_id}' not found")
+        handle_error("related", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{guardrail_id}' not found")
         return
 
     # Build a lookup map
@@ -176,7 +174,7 @@ def related(
                 })
 
     sys.stdout.write(
-        success_response({
+        envelope("related", {
             "guardrail_id": guardrail_id,
             "related": related_items,
         })
@@ -214,7 +212,6 @@ def list_guardrails(
         raise SystemExit(0)
 
     from archguard.core.store import load_guardrails
-    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
@@ -248,8 +245,9 @@ def list_guardrails(
         sys.stdout.write(format_guardrail_list_md(guardrails, total))
     else:
         sys.stdout.write(
-            success_response(
-                {"guardrails": [g.model_dump() for g in guardrails], "total": total}
+            envelope(
+                "list",
+                {"guardrails": [g.model_dump() for g in guardrails], "total": total},
             )
             + "\n"
         )
@@ -285,13 +283,16 @@ def check(
     try:
         context = orjson.loads(raw)
     except Exception:
-        handle_error(20, "invalid_json", "Invalid JSON on stdin")
+        handle_error("check", "ERR_VALIDATION_JSON", "Invalid JSON on stdin")
         return
 
     # Validate required field
     decision = context.get("decision")
     if not decision or not isinstance(decision, str):
-        handle_error(20, "invalid_input", "Field 'decision' is required and must be a string")
+        handle_error(
+            "check", "ERR_VALIDATION_INPUT",
+            "Field 'decision' is required and must be a string",
+        )
         return
 
     # Build search query from decision + tags
@@ -325,13 +326,12 @@ def check(
         if r.severity in summary:
             summary[r.severity] += 1
 
-    response = {
-        "ok": True,
+    result_payload = {
         "context": context,
         "matches": [r.model_dump() for r in results],
         "summary": summary,
     }
-    sys.stdout.write(orjson.dumps(response).decode() + "\n")
+    sys.stdout.write(envelope("check", result_payload) + "\n")
 
 
 def _try_load_model(data_dir: Path) -> Any:

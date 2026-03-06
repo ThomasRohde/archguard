@@ -54,7 +54,7 @@ def _init_dir(tmp_path):
 def _add_guardrail(dd, input_json=ADD_INPUT):
     result = runner.invoke(app, ["--data-dir", dd, "add"], input=input_json)
     assert result.exit_code == 0
-    return orjson.loads(result.output)["guardrail"]["id"]
+    return orjson.loads(result.output)["result"]["guardrail"]["id"]
 
 
 class TestExportJSON:
@@ -63,7 +63,8 @@ class TestExportJSON:
         result = runner.invoke(app, ["--data-dir", dd, "export", "--format", "json"])
         assert result.exit_code == 0
         data = orjson.loads(result.output)
-        assert data == []
+        assert data["ok"] is True
+        assert data["result"]["guardrails"] == []
 
     def test_export_with_guardrails(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -72,8 +73,8 @@ class TestExportJSON:
         result = runner.invoke(app, ["--data-dir", dd, "export", "--format", "json"])
         assert result.exit_code == 0
         data = orjson.loads(result.output)
-        assert len(data) == 2
-        assert data[0]["title"] == "Prefer managed services"
+        assert len(data["result"]["guardrails"]) == 2
+        assert data["result"]["guardrails"][0]["title"] == "Prefer managed services"
 
     def test_export_filter_severity(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -84,8 +85,8 @@ class TestExportJSON:
         )
         assert result.exit_code == 0
         data = orjson.loads(result.output)
-        assert len(data) == 1
-        assert data[0]["severity"] == "must"
+        assert len(data["result"]["guardrails"]) == 1
+        assert data["result"]["guardrails"][0]["severity"] == "must"
 
     def test_export_filter_status(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -95,7 +96,7 @@ class TestExportJSON:
         )
         assert result.exit_code == 0
         data = orjson.loads(result.output)
-        assert len(data) == 0
+        assert len(data["result"]["guardrails"]) == 0
 
     def test_export_filter_scope(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -105,7 +106,7 @@ class TestExportJSON:
         )
         assert result.exit_code == 0
         data = orjson.loads(result.output)
-        assert len(data) == 1
+        assert len(data["result"]["guardrails"]) == 1
 
 
 class TestExportCSV:

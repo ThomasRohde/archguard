@@ -38,6 +38,52 @@ def _init_dir(tmp_path):
     return str(data_dir)
 
 
+def _parse(output: str) -> dict:
+    """Parse the JSON envelope from command output."""
+    return orjson.loads(output)
+
+
+def _assert_envelope(out: dict, *, ok: bool = True, command: str | None = None) -> None:
+    """Assert standard envelope fields are present."""
+    assert "schema_version" in out
+    assert "request_id" in out
+    assert "ok" in out
+    assert "command" in out
+    assert "result" in out
+    assert "errors" in out
+    assert "warnings" in out
+    assert "metrics" in out
+    assert isinstance(out["errors"], list)
+    assert isinstance(out["warnings"], list)
+    assert isinstance(out["metrics"], dict)
+    assert "duration_ms" in out["metrics"]
+    assert out["ok"] is ok
+    if command is not None:
+        assert out["command"] == command
+
+
+class TestEnvelopeShape:
+    """Verify that every command returns the canonical envelope (CLI-MANIFEST §1)."""
+
+    def test_success_envelope(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        result = runner.invoke(app, ["--data-dir", dd, "list"])
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="list")
+        assert out["result"] is not None
+
+    def test_error_envelope(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        result = runner.invoke(app, ["--data-dir", dd, "get", "NONEXISTENT"])
+        assert result.exit_code == 10
+        out = _parse(result.output)
+        _assert_envelope(out, ok=False, command="get")
+        assert out["result"] is None
+        assert len(out["errors"]) == 1
+        assert out["errors"][0]["code"] == "ERR_RESOURCE_NOT_FOUND"
+
+
 class TestInitCommand:
     def test_init_creates_data_dir(self, tmp_path) -> None:
         data_dir = tmp_path / "guardrails"
@@ -71,9 +117,9 @@ class TestBuildCommand:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "build"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["ok"] is True
-        assert out["guardrails"] == 0
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="build")
+        assert out["result"]["guardrails"] == 0
 
     def test_build_with_guardrails(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -81,8 +127,8 @@ class TestBuildCommand:
         runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
         result = runner.invoke(app, ["--data-dir", dd, "build"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["guardrails"] == 1
+        out = _parse(result.output)
+        assert out["result"]["guardrails"] == 1
 
 
 class TestValidateCommand:
@@ -90,15 +136,15 @@ class TestValidateCommand:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "validate"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["ok"] is True
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="validate")
 
     def test_validate_with_valid_guardrail(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
         result = runner.invoke(app, ["--data-dir", dd, "validate"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
+        out = _parse(result.output)
         assert out["ok"] is True
 
     def test_validate_catches_orphan_ref(self, tmp_path) -> None:
@@ -114,9 +160,10 @@ class TestValidateCommand:
         }
         (Path(dd) / "references.jsonl").write_bytes(orjson.dumps(ref) + b"\n")
         result = runner.invoke(app, ["--data-dir", dd, "validate"])
-        assert result.exit_code == 21
-        out = orjson.loads(result.output)
+        assert result.exit_code == 10  # EXIT_VALIDATION
+        out = _parse(result.output)
         assert out["ok"] is False
+        assert len(out["errors"]) >= 1
 
 
 class TestAddCommand:
@@ -124,19 +171,19 @@ class TestAddCommand:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["ok"] is True
-        assert out["guardrail"]["title"] == "Prefer managed services"
-        assert len(out["guardrail"]["id"]) == 26  # ULID length
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="add")
+        assert out["result"]["guardrail"]["title"] == "Prefer managed services"
+        assert len(out["result"]["guardrail"]["id"]) == 26  # ULID length
 
     def test_add_duplicate_title(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
         result = runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
-        assert result.exit_code == 11
-        out = orjson.loads(result.output)
+        assert result.exit_code == 40  # EXIT_CONFLICT
+        out = _parse(result.output)
         assert out["ok"] is False
-        assert "already_exists" in out["error"]["name"]
+        assert out["errors"][0]["code"] == "ERR_CONFLICT_EXISTS"
 
     def test_add_invalid_scope(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -152,12 +199,12 @@ class TestAddCommand:
             }
         )
         result = runner.invoke(app, ["--data-dir", dd, "add"], input=bad_input)
-        assert result.exit_code == 20
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
     def test_add_invalid_json(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "add"], input="not json")
-        assert result.exit_code == 20
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
     def test_add_with_references(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -181,8 +228,8 @@ class TestAddCommand:
         )
         result = runner.invoke(app, ["--data-dir", dd, "add"], input=input_with_refs)
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert len(out["references"]) == 1
+        out = _parse(result.output)
+        assert len(out["result"]["references"]) == 1
 
     def test_add_explain(self) -> None:
         result = runner.invoke(app, ["add", "--explain"])
@@ -200,21 +247,21 @@ class TestGetCommand:
     def test_get_existing(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         add_result = runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
-        guardrail_id = orjson.loads(add_result.output)["guardrail"]["id"]
+        guardrail_id = _parse(add_result.output)["result"]["guardrail"]["id"]
 
         result = runner.invoke(app, ["--data-dir", dd, "get", guardrail_id])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["ok"] is True
-        assert out["guardrail"]["id"] == guardrail_id
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="get")
+        assert out["result"]["guardrail"]["id"] == guardrail_id
 
     def test_get_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "get", "NONEXISTENT"])
-        assert result.exit_code == 10
-        out = orjson.loads(result.output)
+        assert result.exit_code == 10  # EXIT_VALIDATION
+        out = _parse(result.output)
         assert out["ok"] is False
-        assert "not_found" in out["error"]["name"]
+        assert out["errors"][0]["code"] == "ERR_RESOURCE_NOT_FOUND"
 
 
 class TestListCommand:
@@ -222,54 +269,54 @@ class TestListCommand:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "list"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["ok"] is True
-        assert out["total"] == 0
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="list")
+        assert out["result"]["total"] == 0
 
     def test_list_with_guardrails(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
         result = runner.invoke(app, ["--data-dir", dd, "list"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["total"] == 1
+        out = _parse(result.output)
+        assert out["result"]["total"] == 1
 
     def test_list_filter_status(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
         # Default status is "draft"
         result = runner.invoke(app, ["--data-dir", dd, "list", "--status", "draft"])
-        out = orjson.loads(result.output)
-        assert out["total"] == 1
+        out = _parse(result.output)
+        assert out["result"]["total"] == 1
 
         result = runner.invoke(app, ["--data-dir", dd, "list", "--status", "active"])
-        out = orjson.loads(result.output)
-        assert out["total"] == 0
+        out = _parse(result.output)
+        assert out["result"]["total"] == 0
 
     def test_list_filter_severity(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
         result = runner.invoke(app, ["--data-dir", dd, "list", "--severity", "should"])
-        out = orjson.loads(result.output)
-        assert out["total"] == 1
+        out = _parse(result.output)
+        assert out["result"]["total"] == 1
 
     def test_list_filter_scope(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
         result = runner.invoke(app, ["--data-dir", dd, "list", "--scope", "it-platform"])
-        out = orjson.loads(result.output)
-        assert out["total"] == 1
+        out = _parse(result.output)
+        assert out["result"]["total"] == 1
 
         result = runner.invoke(app, ["--data-dir", dd, "list", "--scope", "data-platform"])
-        out = orjson.loads(result.output)
-        assert out["total"] == 0
+        out = _parse(result.output)
+        assert out["result"]["total"] == 0
 
     def test_list_filter_owner(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
         result = runner.invoke(app, ["--data-dir", dd, "list", "--owner", "Platform Team"])
-        out = orjson.loads(result.output)
-        assert out["total"] == 1
+        out = _parse(result.output)
+        assert out["result"]["total"] == 1
 
     def test_list_top(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -287,9 +334,9 @@ class TestListCommand:
         )
         runner.invoke(app, ["--data-dir", dd, "add"], input=input2)
         result = runner.invoke(app, ["--data-dir", dd, "list", "--top", "1"])
-        out = orjson.loads(result.output)
-        assert out["total"] == 2
-        assert len(out["guardrails"]) == 1
+        out = _parse(result.output)
+        assert out["result"]["total"] == 2
+        assert len(out["result"]["guardrails"]) == 1
 
 
 class TestSearchCommand:
@@ -299,10 +346,10 @@ class TestSearchCommand:
         runner.invoke(app, ["--data-dir", dd, "build"])
         result = runner.invoke(app, ["--data-dir", dd, "search", "managed services"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["ok"] is True
-        assert out["total"] >= 1
-        assert out["query"] == "managed services"
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="search")
+        assert out["result"]["total"] >= 1
+        assert out["result"]["query"] == "managed services"
 
     def test_search_with_filter(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -312,7 +359,7 @@ class TestSearchCommand:
             app, ["--data-dir", dd, "search", "managed", "--severity", "should"]
         )
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
+        out = _parse(result.output)
         assert out["ok"] is True
 
     def test_search_no_results(self, tmp_path) -> None:
@@ -321,9 +368,9 @@ class TestSearchCommand:
         runner.invoke(app, ["--data-dir", dd, "build"])
         result = runner.invoke(app, ["--data-dir", dd, "search", "xyznotfoundquery"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
+        out = _parse(result.output)
         assert out["ok"] is True
-        assert out["total"] == 0
+        assert out["result"]["total"] == 0
 
     def test_search_auto_builds_index(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -331,7 +378,7 @@ class TestSearchCommand:
         # No explicit build — search should auto-build
         result = runner.invoke(app, ["--data-dir", dd, "search", "managed"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
+        out = _parse(result.output)
         assert out["ok"] is True
 
     def test_search_explain(self) -> None:
@@ -344,9 +391,9 @@ class TestSearchCommand:
         runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
         runner.invoke(app, ["--data-dir", dd, "build"])
         result = runner.invoke(app, ["--data-dir", dd, "search", "managed"])
-        out = orjson.loads(result.output)
-        if out["total"] > 0:
-            assert "bm25" in out["results"][0]["match_sources"]
+        out = _parse(result.output)
+        if out["result"]["total"] > 0:
+            assert "bm25" in out["result"]["results"][0]["match_sources"]
 
 
 class TestCheckCommand:
@@ -362,23 +409,23 @@ class TestCheckCommand:
         })
         result = runner.invoke(app, ["--data-dir", dd, "check"], input=context)
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["ok"] is True
-        assert "summary" in out
-        assert "must" in out["summary"]
-        assert "should" in out["summary"]
-        assert "may" in out["summary"]
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="check")
+        assert "summary" in out["result"]
+        assert "must" in out["result"]["summary"]
+        assert "should" in out["result"]["summary"]
+        assert "may" in out["result"]["summary"]
 
     def test_check_invalid_json(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "check"], input="not json")
-        assert result.exit_code == 20
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
     def test_check_missing_decision(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         context = json.dumps({"scope": ["it-platform"]})
         result = runner.invoke(app, ["--data-dir", dd, "check"], input=context)
-        assert result.exit_code == 20
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
     def test_check_explain(self) -> None:
         result = runner.invoke(app, ["check", "--explain"])
@@ -395,26 +442,26 @@ class TestCheckCommand:
         })
         result = runner.invoke(app, ["--data-dir", dd, "check"], input=context)
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["context"]["decision"] == "Use managed database"
+        out = _parse(result.output)
+        assert out["result"]["context"]["decision"] == "Use managed database"
 
 
 class TestRelatedCommand:
     def test_related_no_links(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         add_result = runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
-        gid = orjson.loads(add_result.output)["guardrail"]["id"]
+        gid = _parse(add_result.output)["result"]["guardrail"]["id"]
         result = runner.invoke(app, ["--data-dir", dd, "related", gid])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["ok"] is True
-        assert out["guardrail_id"] == gid
-        assert out["related"] == []
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="related")
+        assert out["result"]["guardrail_id"] == gid
+        assert out["result"]["related"] == []
 
     def test_related_with_links(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         add1 = runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
-        gid1 = orjson.loads(add1.output)["guardrail"]["id"]
+        gid1 = _parse(add1.output)["result"]["guardrail"]["id"]
 
         input2 = json.dumps({
             "title": "Encrypt data at rest",
@@ -426,7 +473,7 @@ class TestRelatedCommand:
             "owner": "Security Team",
         })
         add2 = runner.invoke(app, ["--data-dir", dd, "add"], input=input2)
-        gid2 = orjson.loads(add2.output)["guardrail"]["id"]
+        gid2 = _parse(add2.output)["result"]["guardrail"]["id"]
 
         # Manually add a link
         from pathlib import Path
@@ -436,24 +483,24 @@ class TestRelatedCommand:
 
         result = runner.invoke(app, ["--data-dir", dd, "related", gid1])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
+        out = _parse(result.output)
         assert out["ok"] is True
-        assert len(out["related"]) == 1
-        assert out["related"][0]["id"] == gid2
-        assert out["related"][0]["direction"] == "outgoing"
-        assert out["related"][0]["rel_type"] == "supports"
+        assert len(out["result"]["related"]) == 1
+        assert out["result"]["related"][0]["id"] == gid2
+        assert out["result"]["related"][0]["direction"] == "outgoing"
+        assert out["result"]["related"][0]["rel_type"] == "supports"
 
         # Check from the other side
         result2 = runner.invoke(app, ["--data-dir", dd, "related", gid2])
-        out2 = orjson.loads(result2.output)
-        assert len(out2["related"]) == 1
-        assert out2["related"][0]["id"] == gid1
-        assert out2["related"][0]["direction"] == "incoming"
+        out2 = _parse(result2.output)
+        assert len(out2["result"]["related"]) == 1
+        assert out2["result"]["related"][0]["id"] == gid1
+        assert out2["result"]["related"][0]["direction"] == "incoming"
 
     def test_related_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "related", "NONEXISTENT"])
-        assert result.exit_code == 10
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
     def test_related_explain(self) -> None:
         result = runner.invoke(app, ["related", "SOMEID", "--explain"])
@@ -494,7 +541,7 @@ def _add_guardrail(dd, input_json=ADD_INPUT):
     """Helper: add a guardrail and return its ID."""
     result = runner.invoke(app, ["--data-dir", dd, "add"], input=input_json)
     assert result.exit_code == 0
-    return orjson.loads(result.output)["guardrail"]["id"]
+    return _parse(result.output)["result"]["guardrail"]["id"]
 
 
 class TestUpdateCommand:
@@ -504,9 +551,9 @@ class TestUpdateCommand:
         patch = json.dumps({"title": "Updated title"})
         result = runner.invoke(app, ["--data-dir", dd, "update", gid], input=patch)
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["ok"] is True
-        assert out["guardrail"]["title"] == "Updated title"
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="update")
+        assert out["result"]["guardrail"]["title"] == "Updated title"
 
     def test_update_severity(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -514,45 +561,45 @@ class TestUpdateCommand:
         patch = json.dumps({"severity": "must"})
         result = runner.invoke(app, ["--data-dir", dd, "update", gid], input=patch)
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["guardrail"]["severity"] == "must"
+        out = _parse(result.output)
+        assert out["result"]["guardrail"]["severity"] == "must"
 
     def test_update_scope_taxonomy_validation(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         gid = _add_guardrail(dd)
         patch = json.dumps({"scope": ["nonexistent-scope"]})
         result = runner.invoke(app, ["--data-dir", dd, "update", gid], input=patch)
-        assert result.exit_code == 20
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
     def test_update_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         patch = json.dumps({"title": "New"})
         result = runner.invoke(app, ["--data-dir", dd, "update", "NONEXISTENT"], input=patch)
-        assert result.exit_code == 10
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
     def test_update_invalid_json(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         gid = _add_guardrail(dd)
         result = runner.invoke(app, ["--data-dir", dd, "update", gid], input="not json")
-        assert result.exit_code == 20
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
     def test_update_superseded_status_blocked(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         gid = _add_guardrail(dd)
         patch = json.dumps({"status": "superseded"})
         result = runner.invoke(app, ["--data-dir", dd, "update", gid], input=patch)
-        assert result.exit_code == 12
+        assert result.exit_code == 40  # EXIT_CONFLICT
 
     def test_update_sets_updated_at(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         gid = _add_guardrail(dd)
         # Get original
         get_result = runner.invoke(app, ["--data-dir", dd, "get", gid])
-        original_updated = orjson.loads(get_result.output)["guardrail"]["updated_at"]
+        original_updated = _parse(get_result.output)["result"]["guardrail"]["updated_at"]
         patch = json.dumps({"guidance": "New guidance text"})
         result = runner.invoke(app, ["--data-dir", dd, "update", gid], input=patch)
-        out = orjson.loads(result.output)
-        assert out["guardrail"]["updated_at"] != original_updated
+        out = _parse(result.output)
+        assert out["result"]["guardrail"]["updated_at"] != original_updated
 
 
 class TestRefAddCommand:
@@ -566,10 +613,10 @@ class TestRefAddCommand:
         })
         result = runner.invoke(app, ["--data-dir", dd, "ref-add", gid], input=ref_input)
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["ok"] is True
-        assert out["reference"]["guardrail_id"] == gid
-        assert out["reference"]["ref_id"] == "ADR-001"
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="ref-add")
+        assert out["result"]["reference"]["guardrail_id"] == gid
+        assert out["result"]["reference"]["ref_id"] == "ADR-001"
 
     def test_ref_add_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -579,13 +626,13 @@ class TestRefAddCommand:
             "ref_title": "Test",
         })
         result = runner.invoke(app, ["--data-dir", dd, "ref-add", "NONEXISTENT"], input=ref_input)
-        assert result.exit_code == 10
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
     def test_ref_add_invalid_json(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         gid = _add_guardrail(dd)
         result = runner.invoke(app, ["--data-dir", dd, "ref-add", gid], input="bad json")
-        assert result.exit_code == 20
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
 
 class TestLinkCommand:
@@ -599,11 +646,11 @@ class TestLinkCommand:
              "--rel", "supports", "--note", "Both reduce risk"],
         )
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["ok"] is True
-        assert out["link"]["from_id"] == gid1
-        assert out["link"]["to_id"] == gid2
-        assert out["link"]["rel_type"] == "supports"
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="link")
+        assert out["result"]["link"]["from_id"] == gid1
+        assert out["result"]["link"]["to_id"] == gid2
+        assert out["result"]["link"]["rel_type"] == "supports"
 
     def test_link_invalid_rel(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -613,7 +660,7 @@ class TestLinkCommand:
             app,
             ["--data-dir", dd, "link", gid1, gid2, "--rel", "invalid_rel"],
         )
-        assert result.exit_code == 20
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
     def test_link_from_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -622,7 +669,7 @@ class TestLinkCommand:
             app,
             ["--data-dir", dd, "link", "NONEXISTENT", gid, "--rel", "supports"],
         )
-        assert result.exit_code == 10
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
     def test_link_to_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -631,7 +678,7 @@ class TestLinkCommand:
             app,
             ["--data-dir", dd, "link", gid, "NONEXISTENT", "--rel", "supports"],
         )
-        assert result.exit_code == 10
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
     def test_link_visible_in_related(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -643,9 +690,9 @@ class TestLinkCommand:
         )
         result = runner.invoke(app, ["--data-dir", dd, "related", gid1])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert len(out["related"]) == 1
-        assert out["related"][0]["id"] == gid2
+        out = _parse(result.output)
+        assert len(out["result"]["related"]) == 1
+        assert out["result"]["related"][0]["id"] == gid2
 
 
 class TestDeprecateCommand:
@@ -659,9 +706,10 @@ class TestDeprecateCommand:
             app, ["--data-dir", dd, "deprecate", gid, "--reason", "Replaced"]
         )
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["guardrail"]["status"] == "deprecated"
-        assert out["guardrail"]["metadata"]["deprecation_reason"] == "Replaced"
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="deprecate")
+        assert out["result"]["guardrail"]["status"] == "deprecated"
+        assert out["result"]["guardrail"]["metadata"]["deprecation_reason"] == "Replaced"
 
     def test_deprecate_draft(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -670,8 +718,8 @@ class TestDeprecateCommand:
             app, ["--data-dir", dd, "deprecate", gid, "--reason", "No longer needed"]
         )
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["guardrail"]["status"] == "deprecated"
+        out = _parse(result.output)
+        assert out["result"]["guardrail"]["status"] == "deprecated"
 
     def test_deprecate_already_deprecated(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -680,14 +728,14 @@ class TestDeprecateCommand:
         result = runner.invoke(
             app, ["--data-dir", dd, "deprecate", gid, "--reason", "Again"]
         )
-        assert result.exit_code == 12
+        assert result.exit_code == 40  # EXIT_CONFLICT
 
     def test_deprecate_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         result = runner.invoke(
             app, ["--data-dir", dd, "deprecate", "NONEXISTENT", "--reason", "Gone"]
         )
-        assert result.exit_code == 10
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
 
 class TestSupersedeCommand:
@@ -699,13 +747,14 @@ class TestSupersedeCommand:
             app, ["--data-dir", dd, "supersede", old_id, "--by", new_id]
         )
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["guardrail"]["status"] == "superseded"
-        assert out["guardrail"]["superseded_by"] == new_id
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="supersede")
+        assert out["result"]["guardrail"]["status"] == "superseded"
+        assert out["result"]["guardrail"]["superseded_by"] == new_id
         # Verify implements link was created
-        assert out["link"]["from_id"] == new_id
-        assert out["link"]["to_id"] == old_id
-        assert out["link"]["rel_type"] == "implements"
+        assert out["result"]["link"]["from_id"] == new_id
+        assert out["result"]["link"]["to_id"] == old_id
+        assert out["result"]["link"]["rel_type"] == "implements"
 
     def test_supersede_creates_link_in_related(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -713,9 +762,9 @@ class TestSupersedeCommand:
         new_id = _add_guardrail(dd, ADD_INPUT_2)
         runner.invoke(app, ["--data-dir", dd, "supersede", old_id, "--by", new_id])
         result = runner.invoke(app, ["--data-dir", dd, "related", old_id])
-        out = orjson.loads(result.output)
-        assert len(out["related"]) == 1
-        assert out["related"][0]["id"] == new_id
+        out = _parse(result.output)
+        assert len(out["result"]["related"]) == 1
+        assert out["result"]["related"][0]["id"] == new_id
 
     def test_supersede_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -723,7 +772,7 @@ class TestSupersedeCommand:
         result = runner.invoke(
             app, ["--data-dir", dd, "supersede", "NONEXISTENT", "--by", gid]
         )
-        assert result.exit_code == 10
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
     def test_supersede_replacement_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -731,7 +780,7 @@ class TestSupersedeCommand:
         result = runner.invoke(
             app, ["--data-dir", dd, "supersede", gid, "--by", "NONEXISTENT"]
         )
-        assert result.exit_code == 10
+        assert result.exit_code == 10  # EXIT_VALIDATION
 
     def test_supersede_invalid_transition(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -742,7 +791,7 @@ class TestSupersedeCommand:
         result = runner.invoke(
             app, ["--data-dir", dd, "supersede", old_id, "--by", new_id]
         )
-        assert result.exit_code == 12
+        assert result.exit_code == 40  # EXIT_CONFLICT
 
 
 class TestStatsCommand:
@@ -750,10 +799,10 @@ class TestStatsCommand:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "stats"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["ok"] is True
-        assert out["total"] == 0
-        assert out["stale"] == 0
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="stats")
+        assert out["result"]["total"] == 0
+        assert out["result"]["stale"] == 0
 
     def test_stats_with_guardrails(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -761,12 +810,12 @@ class TestStatsCommand:
         _add_guardrail(dd, ADD_INPUT_2)
         result = runner.invoke(app, ["--data-dir", dd, "stats"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["total"] == 2
-        assert out["by_status"]["draft"] == 2
-        assert out["by_severity"]["should"] == 1
-        assert out["by_severity"]["must"] == 1
-        assert out["by_scope"]["it-platform"] == 2
+        out = _parse(result.output)
+        assert out["result"]["total"] == 2
+        assert out["result"]["by_status"]["draft"] == 2
+        assert out["result"]["by_severity"]["should"] == 1
+        assert out["result"]["by_severity"]["must"] == 1
+        assert out["result"]["by_scope"]["it-platform"] == 2
 
     def test_stats_stale_count(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -782,8 +831,8 @@ class TestStatsCommand:
         })
         _add_guardrail(dd, stale_input)
         result = runner.invoke(app, ["--data-dir", dd, "stats"])
-        out = orjson.loads(result.output)
-        assert out["stale"] == 1
+        out = _parse(result.output)
+        assert out["result"]["stale"] == 1
 
     def test_stats_mixed_statuses(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -792,9 +841,9 @@ class TestStatsCommand:
         # Deprecate one
         runner.invoke(app, ["--data-dir", dd, "deprecate", gid1, "--reason", "Old"])
         result = runner.invoke(app, ["--data-dir", dd, "stats"])
-        out = orjson.loads(result.output)
-        assert out["by_status"]["deprecated"] == 1
-        assert out["by_status"]["draft"] == 1
+        out = _parse(result.output)
+        assert out["result"]["by_status"]["deprecated"] == 1
+        assert out["result"]["by_status"]["draft"] == 1
 
 
 class TestReviewDueCommand:
@@ -803,9 +852,9 @@ class TestReviewDueCommand:
         _add_guardrail(dd)  # No review_date
         result = runner.invoke(app, ["--data-dir", dd, "review-due"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["ok"] is True
-        assert out["total"] == 0
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="review-due")
+        assert out["result"]["total"] == 0
 
     def test_review_due_with_overdue(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -822,9 +871,9 @@ class TestReviewDueCommand:
         _add_guardrail(dd, overdue)
         result = runner.invoke(app, ["--data-dir", dd, "review-due"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["total"] == 1
-        assert out["guardrails"][0]["review_date"] == "2020-06-15"
+        out = _parse(result.output)
+        assert out["result"]["total"] == 1
+        assert out["result"]["guardrails"][0]["review_date"] == "2020-06-15"
 
     def test_review_due_custom_before(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -853,14 +902,14 @@ class TestReviewDueCommand:
 
         # Only one should be due before 2026-01-01
         result = runner.invoke(app, ["--data-dir", dd, "review-due", "--before", "2026-01-01"])
-        out = orjson.loads(result.output)
-        assert out["total"] == 1
-        assert out["cutoff"] == "2026-01-01"
+        out = _parse(result.output)
+        assert out["result"]["total"] == 1
+        assert out["result"]["cutoff"] == "2026-01-01"
 
         # Both due before 2027-01-01
         result2 = runner.invoke(app, ["--data-dir", dd, "review-due", "--before", "2027-01-01"])
-        out2 = orjson.loads(result2.output)
-        assert out2["total"] == 2
+        out2 = _parse(result2.output)
+        assert out2["result"]["total"] == 2
 
     def test_review_due_sorted_ascending(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -887,10 +936,10 @@ class TestReviewDueCommand:
         _add_guardrail(dd, later)
         _add_guardrail(dd, earlier)
         result = runner.invoke(app, ["--data-dir", dd, "review-due"])
-        out = orjson.loads(result.output)
-        assert out["total"] == 2
-        assert out["guardrails"][0]["review_date"] == "2020-01-01"
-        assert out["guardrails"][1]["review_date"] == "2020-12-01"
+        out = _parse(result.output)
+        assert out["result"]["total"] == 2
+        assert out["result"]["guardrails"][0]["review_date"] == "2020-01-01"
+        assert out["result"]["guardrails"][1]["review_date"] == "2020-12-01"
 
 
 # ---------------------------------------------------------------------------
@@ -915,10 +964,10 @@ class TestImportCommand:
         ]))
         result = runner.invoke(app, ["--data-dir", dd, "import", str(import_file)])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["ok"] is True
-        assert out["imported"] == 1
-        assert out["updated"] == 0
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="import")
+        assert out["result"]["imported"] == 1
+        assert out["result"]["updated"] == 0
 
     def test_import_csv(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -930,9 +979,9 @@ class TestImportCommand:
         )
         result = runner.invoke(app, ["--data-dir", dd, "import", str(import_file)])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
+        out = _parse(result.output)
         assert out["ok"] is True
-        assert out["imported"] == 1
+        assert out["result"]["imported"] == 1
 
     def test_import_upsert_by_title(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -951,9 +1000,9 @@ class TestImportCommand:
         ]))
         result = runner.invoke(app, ["--data-dir", dd, "import", str(import_file)])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["updated"] == 1
-        assert out["imported"] == 0
+        out = _parse(result.output)
+        assert out["result"]["updated"] == 1
+        assert out["result"]["imported"] == 0
 
     def test_import_invalid_file(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -983,9 +1032,9 @@ class TestImportCommand:
         ]))
         result = runner.invoke(app, ["--data-dir", dd, "import", str(import_file)])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert len(out["errors"]) == 1
-        assert out["imported"] == 0
+        out = _parse(result.output)
+        assert len(out["result"]["errors"]) == 1
+        assert out["result"]["imported"] == 0
 
     def test_import_explain(self, tmp_path) -> None:
         dummy = tmp_path / "dummy.json"
@@ -1000,10 +1049,10 @@ class TestDeduplicateCommand:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "deduplicate"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
-        assert out["ok"] is True
-        assert out["pairs"] == []
-        assert out["total"] == 0
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="deduplicate")
+        assert out["result"]["pairs"] == []
+        assert out["result"]["total"] == 0
 
     def test_deduplicate_no_duplicates(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -1011,7 +1060,7 @@ class TestDeduplicateCommand:
         _add_guardrail(dd, ADD_INPUT_2)
         result = runner.invoke(app, ["--data-dir", dd, "deduplicate"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
+        out = _parse(result.output)
         assert out["ok"] is True
         # Different titles and guidance, should not be duplicates at default threshold
 
@@ -1039,10 +1088,10 @@ class TestDeduplicateCommand:
         _add_guardrail(dd, g2)
         result = runner.invoke(app, ["--data-dir", dd, "deduplicate", "--threshold", "0.3"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
+        out = _parse(result.output)
         assert out["ok"] is True
-        assert out["total"] >= 1
-        assert out["pairs"][0]["method"] == "jaccard"
+        assert out["result"]["total"] >= 1
+        assert out["result"]["pairs"][0]["method"] == "jaccard"
 
     def test_deduplicate_explain(self) -> None:
         result = runner.invoke(app, ["deduplicate", "--explain"])
@@ -1064,8 +1113,8 @@ class TestFormatFlag:
         assert result.exit_code == 0
         plain = _strip_ansi(result.output)
         assert "Prefer managed services" in plain
-        # Should NOT be JSON
-        assert '{"ok"' not in result.output
+        # Should NOT be JSON envelope
+        assert '"schema_version"' not in result.output
 
     def test_list_markdown_format(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -1082,7 +1131,7 @@ class TestFormatFlag:
         assert result.exit_code == 0
         plain = _strip_ansi(result.output)
         assert "Guardrail Statistics" in plain
-        assert '{"ok"' not in result.output
+        assert '"schema_version"' not in result.output
 
     def test_stats_markdown_format(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -1114,5 +1163,94 @@ class TestFormatFlag:
         _add_guardrail(dd)
         result = runner.invoke(app, ["--data-dir", dd, "list"])
         assert result.exit_code == 0
-        out = orjson.loads(result.output)
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="list")
+
+
+class TestGuideCommand:
+    """Verify the guide command (CLI-MANIFEST §4)."""
+
+    def test_guide_returns_envelope(self) -> None:
+        result = runner.invoke(app, ["guide"])
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="guide")
+
+    def test_guide_has_all_sections(self) -> None:
+        result = runner.invoke(app, ["guide"])
+        out = _parse(result.output)
+        r = out["result"]
+        assert "commands" in r
+        assert "error_codes" in r
+        assert "exit_codes" in r
+        assert "envelope_schema" in r
+        assert "examples" in r
+        assert "global_options" in r
+        assert "environment" in r
+        assert "concurrency" in r
+        assert "schema_version" in r
+        assert "version" in r
+
+    def test_guide_lists_all_commands(self) -> None:
+        result = runner.invoke(app, ["guide"])
+        cmds = _parse(result.output)["result"]["commands"]
+        expected = {
+            "init", "build", "validate", "search", "get", "list",
+            "related", "check", "add", "update", "ref-add", "link",
+            "deprecate", "supersede", "stats", "review-due",
+            "deduplicate", "import", "export", "guide",
+        }
+        assert set(cmds.keys()) == expected
+
+    def test_guide_commands_have_mutates_flag(self) -> None:
+        result = runner.invoke(app, ["guide"])
+        cmds = _parse(result.output)["result"]["commands"]
+        for name, cmd in cmds.items():
+            assert "mutates" in cmd, f"command '{name}' missing 'mutates' flag"
+
+    def test_guide_error_codes_match_exit_map(self) -> None:
+        result = runner.invoke(app, ["guide"])
+        codes = _parse(result.output)["result"]["error_codes"]
+        # Every error code should have exit_code, retryable, suggested_action
+        for code, info in codes.items():
+            assert "exit_code" in info, f"{code} missing exit_code"
+            assert "retryable" in info, f"{code} missing retryable"
+            assert "suggested_action" in info, f"{code} missing suggested_action"
+
+    def test_guide_explain(self) -> None:
+        result = runner.invoke(app, ["guide", "--explain"])
+        assert result.exit_code == 0
+        assert "machine-readable" in result.output
+
+
+class TestLLMMode:
+    """Verify LLM=true behavior (CLI-MANIFEST §8)."""
+
+    def test_llm_true_forces_json(self, tmp_path) -> None:
+        """LLM=true should force JSON output even if no format flag is given."""
+        dd = _init_dir(tmp_path)
+        _add_guardrail(dd)
+        result = runner.invoke(app, ["--data-dir", dd, "list"], env={"LLM": "true"})
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        _assert_envelope(out, ok=True, command="list")
+
+    def test_llm_true_explicit_format_overrides(self, tmp_path) -> None:
+        """Explicit --format flag should still override LLM=true."""
+        dd = _init_dir(tmp_path)
+        _add_guardrail(dd)
+        result = runner.invoke(
+            app, ["--data-dir", dd, "-f", "table", "list"], env={"LLM": "true"}
+        )
+        assert result.exit_code == 0
+        plain = _strip_ansi(result.output)
+        assert "Prefer managed services" in plain
+
+    def test_llm_false_no_effect(self, tmp_path) -> None:
+        """LLM=false should have no effect."""
+        dd = _init_dir(tmp_path)
+        _add_guardrail(dd)
+        result = runner.invoke(app, ["--data-dir", dd, "list"], env={"LLM": "false"})
+        assert result.exit_code == 0
+        out = _parse(result.output)
         assert out["ok"] is True

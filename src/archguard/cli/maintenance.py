@@ -9,6 +9,7 @@ import typer
 
 from archguard.cli import app, handle_error
 from archguard.core.models import Guardrail
+from archguard.output.json import envelope
 
 
 @app.command()
@@ -31,7 +32,6 @@ def stats(
 
     from archguard.cli import state
     from archguard.core.store import load_guardrails
-    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
@@ -65,7 +65,7 @@ def stats(
         from archguard.output.markdown import format_stats_md
         sys.stdout.write(format_stats_md(stats_dict))
     else:
-        sys.stdout.write(success_response(stats_dict) + "\n")
+        sys.stdout.write(envelope("stats", stats_dict) + "\n")
 
 
 @app.command(name="review-due")
@@ -87,7 +87,6 @@ def review_due(
 
     from archguard.cli import state
     from archguard.core.store import load_guardrails
-    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
@@ -106,11 +105,12 @@ def review_due(
         sys.stdout.write(format_review_due_md(due, cutoff))
     else:
         sys.stdout.write(
-            success_response({
+            envelope("review-due", {
                 "cutoff": cutoff,
                 "guardrails": [g.model_dump() for g in due],
                 "total": len(due),
-            }) + "\n"
+            })
+            + "\n"
         )
 
 
@@ -135,14 +135,13 @@ def deduplicate(
 
     from archguard.cli import state
     from archguard.core.store import load_guardrails
-    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
 
     if len(guardrails) < 2:
         sys.stdout.write(
-            success_response({"pairs": [], "total": 0, "threshold": threshold}) + "\n"
+            envelope("deduplicate", {"pairs": [], "total": 0, "threshold": threshold}) + "\n"
         )
         return
 
@@ -186,7 +185,8 @@ def deduplicate(
     pairs.sort(key=lambda p: p["similarity"], reverse=True)
 
     sys.stdout.write(
-        success_response({"pairs": pairs, "total": len(pairs), "threshold": threshold}) + "\n"
+        envelope("deduplicate", {"pairs": pairs, "total": len(pairs), "threshold": threshold})
+        + "\n"
     )
 
 
@@ -216,15 +216,17 @@ def import_guardrails(
     from archguard.cli import state
     from archguard.core.models import Guardrail, GuardrailCreate
     from archguard.core.store import load_guardrails, load_taxonomy, rewrite_jsonl
-    from archguard.output.json import success_response
 
     file_path = Path(file)
     if not file_path.exists():
-        handle_error(1, "file_not_found", f"File not found: {file}")
+        handle_error("import", "ERR_IO_FILE_NOT_FOUND", f"File not found: {file}")
 
     ext = file_path.suffix.lower()
     if ext not in (".json", ".csv"):
-        handle_error(1, "invalid_format", f"Unsupported file extension: {ext}. Use .json or .csv")
+        handle_error(
+            "import", "ERR_VALIDATION_FORMAT",
+            f"Unsupported file extension: {ext}. Use .json or .csv",
+        )
 
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
@@ -239,10 +241,13 @@ def import_guardrails(
             content = file_path.read_bytes()
             parsed = orjson.loads(content)
             if not isinstance(parsed, list):
-                handle_error(1, "invalid_format", "JSON file must contain an array of objects")
+                handle_error(
+                    "import", "ERR_VALIDATION_FORMAT",
+                    "JSON file must contain an array of objects",
+                )
             raw_records = cast(list[dict[str, Any]], parsed)
         except orjson.JSONDecodeError as exc:
-            handle_error(1, "invalid_json", str(exc))
+            handle_error("import", "ERR_VALIDATION_JSON", str(exc))
     else:
         text = file_path.read_text(encoding="utf-8")
         reader = csv_mod.DictReader(StringIO(text))
@@ -288,9 +293,9 @@ def import_guardrails(
             merged["updated_at"] = now
             updated_obj = Guardrail.model_validate(merged)
             by_title[create.title] = updated_obj
-            for idx, g in enumerate(guardrails):
+            for idx_val, g in enumerate(guardrails):
                 if g.title == create.title:
-                    guardrails[idx] = updated_obj
+                    guardrails[idx_val] = updated_obj
                     break
             updated_count += 1
         else:
@@ -320,5 +325,6 @@ def import_guardrails(
     rewrite_jsonl(data_dir / "guardrails.jsonl", guardrails)
 
     sys.stdout.write(
-        success_response({"imported": new_count, "updated": updated_count, "errors": errors}) + "\n"
+        envelope("import", {"imported": new_count, "updated": updated_count, "errors": errors})
+        + "\n"
     )

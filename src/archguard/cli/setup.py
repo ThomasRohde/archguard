@@ -9,9 +9,7 @@ from typing import Annotated
 import typer
 
 from archguard.cli import app, state
-from archguard.output.json import success_response
-
-# TODO: Wire up core.store and core.index once implemented
+from archguard.output.json import envelope
 
 
 @app.command()
@@ -65,7 +63,7 @@ def init(
     models_dir.mkdir(parents=True, exist_ok=True)
 
     sys.stdout.write(
-        success_response({"message": "Initialized guardrails repository", "path": str(data_dir)})
+        envelope("init", {"message": "Initialized guardrails repository", "path": str(data_dir)})
         + "\n"
     )
 
@@ -114,14 +112,15 @@ def build(
     build_index(db_path, guardrails_list, refs_list, links_list, embeddings=embeddings)
 
     sys.stdout.write(
-        success_response(
+        envelope(
+            "build",
             {
                 "message": "Index built successfully",
                 "guardrails": len(guardrails_list),
                 "references": len(refs_list),
                 "links": len(links_list),
                 "embeddings": embedding_count,
-            }
+            },
         )
         + "\n"
     )
@@ -143,21 +142,24 @@ def validate(
         raise SystemExit(0)
 
     from archguard.core.validator import validate_corpus
+    from archguard.output.json import EXIT_VALIDATION
 
     data_dir = Path(state.data_dir)
     result = validate_corpus(data_dir)
 
     if result.ok:
         sys.stdout.write(
-            success_response({"errors": [], "warnings": result.warnings}) + "\n"
+            envelope("validate", {"errors": [], "warnings": result.warnings}) + "\n"
         )
     else:
-        import orjson
-
         sys.stdout.write(
-            orjson.dumps(
-                {"ok": False, "errors": result.errors, "warnings": result.warnings}
-            ).decode()
+            envelope(
+                "validate",
+                result=None,
+                ok=False,
+                errors=[{"code": "ERR_VALIDATION", "message": e} for e in result.errors],
+                warnings=result.warnings,
+            )
             + "\n"
         )
-        raise SystemExit(21)
+        raise SystemExit(EXIT_VALIDATION)

@@ -9,6 +9,7 @@ from typing import Annotated, Any
 import typer
 
 from archguard.cli import app, handle_error, state
+from archguard.output.json import envelope
 
 
 @app.command()
@@ -38,24 +39,23 @@ def add(
     from archguard.core.index import ensure_index
     from archguard.core.models import Guardrail, GuardrailCreate, Reference
     from archguard.core.store import append_jsonl, load_guardrails, load_taxonomy
-    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
 
     # Read JSON from stdin
     raw = sys.stdin.read().strip()
     if not raw:
-        handle_error(20, "validation_error", "No JSON input provided on stdin")
+        handle_error("add", "ERR_VALIDATION", "No JSON input provided on stdin")
 
     try:
         payload = orjson.loads(raw)
     except orjson.JSONDecodeError as e:
-        handle_error(20, "validation_error", f"Invalid JSON: {e}")
+        handle_error("add", "ERR_VALIDATION_JSON", f"Invalid JSON: {e}")
 
     try:
         create = GuardrailCreate.model_validate(payload)
     except ValidationError as e:
-        handle_error(20, "validation_error", f"Validation failed: {e}")
+        handle_error("add", "ERR_VALIDATION", f"Validation failed: {e}")
         return  # unreachable, keeps type checker happy
 
     # Validate scope against taxonomy
@@ -64,8 +64,8 @@ def add(
         for s in create.scope:
             if s not in taxonomy:
                 handle_error(
-                    20,
-                    "validation_error",
+                    "add",
+                    "ERR_VALIDATION",
                     f"Scope '{s}' not in taxonomy. Allowed: {taxonomy}",
                 )
 
@@ -74,7 +74,8 @@ def add(
     for g in existing:
         if g.title == create.title:
             handle_error(
-                11, "already_exists", f"Guardrail with title '{create.title}' already exists"
+                "add", "ERR_CONFLICT_EXISTS",
+                f"Guardrail with title '{create.title}' already exists",
             )
 
     # Generate ID and timestamps
@@ -124,7 +125,7 @@ def add(
     ensure_index(data_dir)
 
     sys.stdout.write(
-        success_response({"guardrail": guardrail.model_dump(), "references": refs_created}) + "\n"
+        envelope("add", {"guardrail": guardrail.model_dump(), "references": refs_created}) + "\n"
     )
 
 
@@ -148,30 +149,29 @@ def update(
 
     from archguard.core.models import GuardrailPatch
     from archguard.core.store import load_guardrails, load_taxonomy, rewrite_jsonl
-    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
 
     # Read patch JSON from stdin
     raw = sys.stdin.read().strip()
     if not raw:
-        handle_error(20, "validation_error", "No JSON input provided on stdin")
+        handle_error("update", "ERR_VALIDATION", "No JSON input provided on stdin")
 
     try:
         payload = orjson.loads(raw)
     except orjson.JSONDecodeError as e:
-        handle_error(20, "validation_error", f"Invalid JSON: {e}")
+        handle_error("update", "ERR_VALIDATION_JSON", f"Invalid JSON: {e}")
 
     try:
         patch = GuardrailPatch.model_validate(payload)
     except ValidationError as e:
-        handle_error(20, "validation_error", f"Validation failed: {e}")
+        handle_error("update", "ERR_VALIDATION", f"Validation failed: {e}")
         return
 
     # Disallow status changes to superseded via update — use supersede command
     if patch.status == "superseded":
         handle_error(
-            12, "invalid_transition",
+            "update", "ERR_CONFLICT_TRANSITION",
             "Use the 'supersede' command to supersede a guardrail",
         )
 
@@ -182,7 +182,7 @@ def update(
             for s in patch.scope:
                 if s not in taxonomy:
                     handle_error(
-                        20, "validation_error",
+                        "update", "ERR_VALIDATION",
                         f"Scope '{s}' not in taxonomy. Allowed: {taxonomy}",
                     )
 
@@ -191,7 +191,7 @@ def update(
     idx = next((i for i, g in enumerate(guardrails) if g.id == guardrail_id), None)
 
     if idx is None:
-        handle_error(10, "not_found", f"Guardrail '{guardrail_id}' not found")
+        handle_error("update", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{guardrail_id}' not found")
         return
 
     # Merge patch fields
@@ -208,7 +208,7 @@ def update(
     rewrite_jsonl(data_dir / "guardrails.jsonl", guardrails)
 
     sys.stdout.write(
-        success_response({"guardrail": guardrails[idx].model_dump()}) + "\n"
+        envelope("update", {"guardrail": guardrails[idx].model_dump()}) + "\n"
     )
 
 
@@ -234,30 +234,29 @@ def ref_add(
 
     from archguard.core.models import Reference, ReferenceCreate
     from archguard.core.store import append_jsonl, load_guardrails
-    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
 
     # Read reference JSON from stdin
     raw = sys.stdin.read().strip()
     if not raw:
-        handle_error(20, "validation_error", "No JSON input provided on stdin")
+        handle_error("ref-add", "ERR_VALIDATION", "No JSON input provided on stdin")
 
     try:
         payload = orjson.loads(raw)
     except orjson.JSONDecodeError as e:
-        handle_error(20, "validation_error", f"Invalid JSON: {e}")
+        handle_error("ref-add", "ERR_VALIDATION_JSON", f"Invalid JSON: {e}")
 
     try:
         ref_create = ReferenceCreate.model_validate(payload)
     except ValidationError as e:
-        handle_error(20, "validation_error", f"Validation failed: {e}")
+        handle_error("ref-add", "ERR_VALIDATION", f"Validation failed: {e}")
         return
 
     # Verify guardrail exists
     guardrails = load_guardrails(data_dir)
     if not any(g.id == guardrail_id for g in guardrails):
-        handle_error(10, "not_found", f"Guardrail '{guardrail_id}' not found")
+        handle_error("ref-add", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{guardrail_id}' not found")
 
     from datetime import UTC, datetime
 
@@ -274,7 +273,7 @@ def ref_add(
     append_jsonl(data_dir / "references.jsonl", ref)
 
     sys.stdout.write(
-        success_response({"reference": ref.model_dump()}) + "\n"
+        envelope("ref-add", {"reference": ref.model_dump()}) + "\n"
     )
 
 
@@ -301,7 +300,6 @@ def link(
 
     from archguard.core.models import Link as LinkModel
     from archguard.core.store import append_jsonl, load_guardrails
-    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
 
@@ -309,7 +307,7 @@ def link(
     valid_rels = {"supports", "conflicts", "refines", "implements"}
     if rel not in valid_rels:
         handle_error(
-            20, "validation_error",
+            "link", "ERR_VALIDATION",
             f"Invalid rel type '{rel}'. Must be one of: {sorted(valid_rels)}",
         )
 
@@ -317,9 +315,9 @@ def link(
     guardrails = load_guardrails(data_dir)
     ids = {g.id for g in guardrails}
     if from_id not in ids:
-        handle_error(10, "not_found", f"Guardrail '{from_id}' not found")
+        handle_error("link", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{from_id}' not found")
     if to_id not in ids:
-        handle_error(10, "not_found", f"Guardrail '{to_id}' not found")
+        handle_error("link", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{to_id}' not found")
 
     link_record = LinkModel(
         from_id=from_id,
@@ -330,7 +328,7 @@ def link(
     append_jsonl(data_dir / "links.jsonl", link_record)
 
     sys.stdout.write(
-        success_response({"link": link_record.model_dump()}) + "\n"
+        envelope("link", {"link": link_record.model_dump()}) + "\n"
     )
 
 
@@ -351,7 +349,6 @@ def deprecate(
         raise SystemExit(0)
 
     from archguard.core.store import load_guardrails, rewrite_jsonl
-    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
 
@@ -359,13 +356,15 @@ def deprecate(
     idx = next((i for i, g in enumerate(guardrails) if g.id == guardrail_id), None)
 
     if idx is None:
-        handle_error(10, "not_found", f"Guardrail '{guardrail_id}' not found")
+        handle_error(
+            "deprecate", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{guardrail_id}' not found",
+        )
         return
 
     # Validate transition: only draft/active can be deprecated
     if guardrails[idx].status not in ("draft", "active"):
         handle_error(
-            12, "invalid_transition",
+            "deprecate", "ERR_CONFLICT_TRANSITION",
             f"Cannot deprecate guardrail with status '{guardrails[idx].status}'."
             " Must be 'draft' or 'active'.",
         )
@@ -383,7 +382,7 @@ def deprecate(
     rewrite_jsonl(data_dir / "guardrails.jsonl", guardrails)
 
     sys.stdout.write(
-        success_response({"guardrail": guardrails[idx].model_dump()}) + "\n"
+        envelope("deprecate", {"guardrail": guardrails[idx].model_dump()}) + "\n"
     )
 
 
@@ -407,7 +406,6 @@ def supersede(
     from archguard.core.models import Guardrail
     from archguard.core.models import Link as LinkModel
     from archguard.core.store import append_jsonl, load_guardrails, rewrite_jsonl
-    from archguard.output.json import success_response
 
     data_dir = Path(state.data_dir)
 
@@ -415,20 +413,27 @@ def supersede(
     ids = {g.id for g in guardrails}
 
     if guardrail_id not in ids:
-        handle_error(10, "not_found", f"Guardrail '{guardrail_id}' not found")
+        handle_error(
+            "supersede", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{guardrail_id}' not found",
+        )
     if by not in ids:
-        handle_error(10, "not_found", f"Replacement guardrail '{by}' not found")
+        handle_error(
+            "supersede", "ERR_RESOURCE_NOT_FOUND",
+            f"Replacement guardrail '{by}' not found",
+        )
 
     idx = next((i for i, g in enumerate(guardrails) if g.id == guardrail_id), None)
 
     if idx is None:
-        handle_error(10, "not_found", f"Guardrail '{guardrail_id}' not found")
+        handle_error(
+            "supersede", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{guardrail_id}' not found",
+        )
         return
 
     # Validate transition
     if guardrails[idx].status not in ("draft", "active"):
         handle_error(
-            12, "invalid_transition",
+            "supersede", "ERR_CONFLICT_TRANSITION",
             f"Cannot supersede guardrail with status '{guardrails[idx].status}'."
             " Must be 'draft' or 'active'.",
         )
@@ -450,7 +455,7 @@ def supersede(
     append_jsonl(data_dir / "links.jsonl", link_record)
 
     sys.stdout.write(
-        success_response({
+        envelope("supersede", {
             "guardrail": guardrails[idx].model_dump(),
             "link": link_record.model_dump(),
         }) + "\n"

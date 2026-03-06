@@ -129,27 +129,3 @@ class SearchResult(BaseModel):
     snippet: str
 
 
-class SearchResponse(BaseModel):
-    """Search command output envelope."""
-
-    ok: bool = True
-    results: list[SearchResult]
-    total: int
-    query: str
-    filters_applied: dict[str, Any]
-
-
-class CheckResponse(BaseModel):
-    """Check command output envelope."""
-
-    ok: bool = True
-    context: dict[str, Any]
-    matches: list[SearchResult]
-    summary: dict[str, Any]
-
-
-class ErrorResponse(BaseModel):
-    """Structured error envelope."""
-
-    ok: bool = False
-    error: dict[str, Any]
