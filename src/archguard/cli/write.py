@@ -24,6 +24,22 @@ def add(
         sys.stderr.write(
             "add reads a guardrail JSON object from stdin, validates it, generates a ULID, "
             "appends it to guardrails.jsonl, rebuilds the index, and returns the created record.\n"
+            "\n"
+            "WHEN TO USE: You have identified an atomic architectural rule from an authoritative\n"
+            "source and confirmed (via 'archguard search') that no duplicate exists.\n"
+            "\n"
+            "WHEN NOT TO USE:\n"
+            "  - Source is background context, not a rule -> use ref-add instead.\n"
+            "  - An existing guardrail covers this -> use update or link instead.\n"
+            "  - Source is vague with no clear normative action -> do not create.\n"
+            "\n"
+            "COMMON MISTAKES:\n"
+            "  - Compound rules: split into one guardrail per atomic rule.\n"
+            "  - Severity too high: must requires authoritative mandate, not model confidence.\n"
+            "  - Vague guidance: 'follow best practices' is not actionable.\n"
+            "  - Missing references: active guardrails should cite their source.\n"
+            "\n"
+            "Call 'archguard add --schema' to see the exact input JSON schema.\n"
         )
         raise SystemExit(0)
     if schema:
@@ -152,6 +168,15 @@ def update(
         sys.stderr.write(
             "update reads a partial JSON patch from stdin, merges it with the existing guardrail, "
             "rewrites the JSONL line, and rebuilds the index. Only provided fields are changed.\n"
+            "\n"
+            "WHEN TO USE: Refining an existing guardrail — correcting wording,\n"
+            "adjusting severity, narrowing scope, or promoting draft to active.\n"
+            "\n"
+            "WHEN NOT TO USE:\n"
+            "  - Rule is fundamentally different -> create new guardrail and link/supersede.\n"
+            "  - You want to set status=superseded -> use the 'supersede' command instead.\n"
+            "\n"
+            "Only provided fields are changed (patch semantics). Omitted fields are untouched.\n"
         )
         raise SystemExit(0)
 
@@ -252,6 +277,14 @@ def ref_add(
         sys.stderr.write(
             "ref-add reads a reference JSON from stdin, validates it, appends to references.jsonl, "
             "and rebuilds the index.\n"
+            "\n"
+            "WHEN TO USE: Attaching an authoritative source (ADR, policy, standard, regulation,\n"
+            "pattern, document) to an existing guardrail. Active guardrails should have at least\n"
+            "one reference.\n"
+            "\n"
+            "WHEN NOT TO USE:\n"
+            "  - The source material is a new rule -> use 'add' to create a guardrail first.\n"
+            "  - You want to link two guardrails -> use 'link' instead.\n"
         )
         raise SystemExit(0)
 
@@ -329,6 +362,16 @@ def link(
         sys.stderr.write(
             "link creates a directional relationship between two guardrails "
             "and appends it to links.jsonl.\n"
+            "\n"
+            "RELATIONSHIP TYPES:\n"
+            "  supports    — A reinforces B (complementary rules).\n"
+            "  conflicts   — A and B are in tension (document the trade-off).\n"
+            "  refines     — A is a more specific version of B.\n"
+            "  implements  — A is a concrete implementation of B.\n"
+            "  requires    — A depends on B being in place.\n"
+            "\n"
+            "WHEN TO USE: Two guardrails are related and the relationship should be\n"
+            "explicitly captured for traceability.\n"
         )
         raise SystemExit(0)
 

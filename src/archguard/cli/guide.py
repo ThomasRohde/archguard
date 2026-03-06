@@ -37,6 +37,12 @@ def _build_guide() -> dict[str, Any]:
             "additive_changes": "minor",
             "breaking_changes": "major",
         },
+        "agent_bootstrap": _agent_bootstrap(),
+        "field_semantics": _field_semantics(),
+        "capture_workflow": _capture_workflow(),
+        "quality_criteria": _quality_criteria(),
+        "anti_patterns": _anti_patterns(),
+        "when_not_to_add": _when_not_to_add(),
         "global_options": {
             "--format, -f": {
                 "type": "string",
@@ -121,7 +127,250 @@ def _build_guide() -> dict[str, Any]:
             ],
         },
         "examples": _examples(),
+        "good_and_bad_examples": _good_and_bad_examples(),
     }
+
+
+def _agent_bootstrap() -> dict[str, Any]:
+    """Deterministic workflow for agents to follow before writing."""
+    return {
+        "instruction": (
+            "Call 'archguard guide' once and cache the result. "
+            "Before creating a guardrail, always follow the workflow below."
+        ),
+        "first_call": "archguard guide",
+        "before_create": [
+            "archguard search <topic>  — detect duplicates and overlaps",
+            "archguard deduplicate     — check corpus-wide similarity",
+            "archguard add --schema    — fetch the exact input contract",
+        ],
+        "writes_are_sequential": True,
+        "prefer_draft": (
+            "Set status=draft when source authority is incomplete, "
+            "scope is uncertain, or exact wording needs human review."
+        ),
+    }
+
+
+def _field_semantics() -> dict[str, Any]:
+    """Domain-level meaning of key fields — not just types, but judgment rules."""
+    return {
+        "severity": {
+            "must": (
+                "Mandatory rule. Use ONLY when the source is authoritative "
+                "(policy, standard, regulation, formal platform requirement) "
+                "and non-compliance requires exception or remediation."
+            ),
+            "should": (
+                "Strong recommendation or default standard. "
+                "Deviations require documented rationale."
+            ),
+            "may": (
+                "Optional or advisory practice. "
+                "Informational, not enforced."
+            ),
+            "judgment_rule": (
+                "Severity must not exceed the strength of the source. "
+                "If the source says 'consider' or 'recommend', "
+                "do not assign 'must'."
+            ),
+        },
+        "status": {
+            "draft": (
+                "Candidate guardrail. Use when wording, scope, or "
+                "authority is still being validated."
+            ),
+            "active": "Current approved guardrail.",
+            "deprecated": (
+                "Retained for audit trail, but no longer preferred. "
+                "Use 'deprecate' command."
+            ),
+            "superseded": (
+                "Replaced by another guardrail. "
+                "Use 'supersede' command."
+            ),
+        },
+        "scope": (
+            "Architectural domain from taxonomy.json. "
+            "Call 'archguard init --schema' or inspect taxonomy.json "
+            "for allowed values."
+        ),
+        "applies_to": (
+            "Free-form tags describing what the guardrail applies to "
+            "(e.g. 'technology', 'data', 'integration'). "
+            "Not validated against taxonomy."
+        ),
+        "references": (
+            "External citations linking a guardrail to its authoritative "
+            "source. Active guardrails should have at least one reference. "
+            "Types: adr, policy, standard, regulation, pattern, document."
+        ),
+        "title": (
+            "States the rule, not the rationale. "
+            "Concise, normative, one rule per title. "
+            "Bad: 'Security considerations'. "
+            "Good: 'Encrypt data at rest with AES-256'."
+        ),
+        "guidance": (
+            "Actionable instruction — what to do in concrete terms. "
+            "Bad: 'Follow best practices'. "
+            "Good: 'Use the platform TLS termination proxy for all "
+            "external-facing services'."
+        ),
+        "rationale": (
+            "Explains why the rule exists. Provides context, "
+            "not the rule itself."
+        ),
+    }
+
+
+def _capture_workflow() -> list[str]:
+    """Step-by-step process for extracting a guardrail from source material."""
+    return [
+        "1. Search for existing overlapping guardrails (archguard search <topic>).",
+        "2. Extract ONE atomic rule from the source material.",
+        "3. Choose severity based on source strength, not model confidence.",
+        "4. Set status=draft if authority, scope, or wording is uncertain.",
+        "5. Write a normative title (states the rule, not the topic).",
+        "6. Write actionable guidance (what to do, not 'follow best practices').",
+        "7. Write rationale (why the rule exists).",
+        "8. Attach authoritative references (archguard ref-add).",
+        "9. Create the guardrail (archguard add).",
+        "10. Link, supersede, or deprecate related records if needed.",
+    ]
+
+
+def _quality_criteria() -> list[str]:
+    """What makes a good guardrail record."""
+    return [
+        "One atomic rule per record.",
+        "Title is normative and concise — states the rule, not the topic.",
+        "Guidance is actionable and specific — concrete instructions.",
+        "Rationale explains why the rule exists.",
+        "Severity does not exceed source strength.",
+        "Active guardrails have at least one authoritative reference.",
+        "Scope and applies_to are specific, not overly broad.",
+        "No duplicate or near-duplicate of an existing guardrail.",
+    ]
+
+
+def _anti_patterns() -> list[str]:
+    """Common mistakes when creating guardrails."""
+    return [
+        "Vague guidance like 'follow best practices' or 'ensure compliance'.",
+        "Compound rule covering multiple unrelated concerns in one record.",
+        "Using severity=must without authoritative evidence from the source.",
+        "Creating a new guardrail when an existing one should be updated or linked.",
+        "Capturing implementation detail as if it were architecture policy.",
+        "Title that describes a topic area rather than stating a rule.",
+        "Rationale that repeats the guidance instead of explaining the 'why'.",
+        "Setting status=active without attaching references.",
+    ]
+
+
+def _when_not_to_add() -> list[dict[str, str]]:
+    """Situations where a guardrail should NOT be created."""
+    return [
+        {
+            "situation": "Source is background context, not a normative rule.",
+            "instead": "Use ref-add to attach the source to an existing guardrail.",
+        },
+        {
+            "situation": "Source is an implementation example, not a policy.",
+            "instead": "Do not create a guardrail. Implementation details are not governance.",
+        },
+        {
+            "situation": "An existing guardrail already covers this rule.",
+            "instead": "Use update to refine the existing record, or link to connect them.",
+        },
+        {
+            "situation": "The rule is a specialization of an existing guardrail.",
+            "instead": "Create the new guardrail and link it with rel_type=refines.",
+        },
+        {
+            "situation": "Source uses vague language with no clear normative action.",
+            "instead": "Do not create a guardrail. Not every statement is a rule.",
+        },
+        {
+            "situation": "The content is a relationship between existing guardrails.",
+            "instead": "Use link to express the relationship (supports, conflicts, etc.).",
+        },
+    ]
+
+
+def _good_and_bad_examples() -> list[dict[str, Any]]:
+    """Semantic examples showing good vs bad guardrail capture."""
+    return [
+        {
+            "label": "Atomic vs compound rule",
+            "bad": {
+                "title": "API security and performance standards",
+                "guidance": (
+                    "APIs must use OAuth 2.0 for auth and must respond "
+                    "within 200ms at p99."
+                ),
+                "problem": "Two unrelated rules in one record.",
+            },
+            "good": [
+                {
+                    "title": "Authenticate APIs with OAuth 2.0",
+                    "guidance": (
+                        "All external-facing APIs must authenticate "
+                        "requests using OAuth 2.0 with the platform "
+                        "identity provider."
+                    ),
+                },
+                {
+                    "title": "API response latency below 200ms at p99",
+                    "guidance": (
+                        "External-facing APIs should respond within "
+                        "200ms at the 99th percentile under normal load."
+                    ),
+                },
+            ],
+        },
+        {
+            "label": "Severity matching source strength",
+            "bad": {
+                "title": "Consider event-driven integration",
+                "severity": "must",
+                "source_says": "Teams should consider event-driven patterns.",
+                "problem": (
+                    "Source uses 'should consider' (advisory) but "
+                    "guardrail claims 'must' (mandatory)."
+                ),
+            },
+            "good": {
+                "title": "Prefer event-driven integration for async workflows",
+                "severity": "should",
+                "source_says": "Teams should consider event-driven patterns.",
+            },
+        },
+        {
+            "label": "Normative title vs topic title",
+            "bad": {
+                "title": "Data encryption",
+                "problem": "Describes a topic, not a rule.",
+            },
+            "good": {
+                "title": "Encrypt data at rest with AES-256 or equivalent",
+            },
+        },
+        {
+            "label": "Actionable guidance vs vague guidance",
+            "bad": {
+                "guidance": "Follow industry best practices for logging.",
+                "problem": "Not actionable — what are the 'best practices'?",
+            },
+            "good": {
+                "guidance": (
+                    "Emit structured JSON logs to stdout. Include "
+                    "correlation_id, timestamp, level, and service_name "
+                    "in every log entry."
+                ),
+            },
+        },
+    ]
 
 
 def _commands() -> dict[str, Any]:

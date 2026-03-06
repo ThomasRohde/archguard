@@ -39,6 +39,10 @@ def search(
             "search performs hybrid retrieval: BM25 keyword search via FTS5 and cosine similarity "
             "via Model2Vec embeddings. Results are merged using Reciprocal Rank Fusion (RRF). "
             "Returns compact summaries for triage.\n"
+            "\n"
+            "IMPORTANT FOR AGENTS: Always search before creating a guardrail to detect\n"
+            "duplicates and overlaps. If search returns a relevant existing guardrail,\n"
+            "prefer 'update', 'link', or 'ref-add' over creating a new record.\n"
         )
         raise SystemExit(0)
 
@@ -283,6 +287,12 @@ def check(
             "(FTS on text + filter intersection on structured fields), "
             "and returns matching guardrails grouped by severity. "
             "The CLI does not judge compliance; it surfaces relevance.\n"
+            "\n"
+            "The agent is responsible for interpreting the results and advising\n"
+            "the user on compliance. Pay attention to 'must' matches — these\n"
+            "represent mandatory rules that require exception if violated.\n"
+            "\n"
+            "Call 'archguard check --schema' to see the exact input JSON schema.\n"
         )
         raise SystemExit(0)
     if schema:

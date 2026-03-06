@@ -107,12 +107,17 @@ app = typer.Typer(
         "Data lives in Git-friendly JSONL files. The CLI is deterministic — no LLM "
         "inference, no cloud sync. Agents provide the intelligence; this tool provides "
         "the governance knowledge.\n\n"
+        "AGENTS: Call 'archguard guide' first. It returns the full CLI schema, "
+        "field semantics, capture workflow, quality criteria, and examples. "
+        "Before creating a guardrail, call 'archguard search <topic>' to detect "
+        "duplicates, then 'archguard add --schema' to fetch the exact input contract. "
+        "Prefer status=draft when source authority is uncertain.\n\n"
         "Quick start:\n\n"
+        "  archguard guide         Full CLI schema for agent bootstrap\n"
         "  archguard init          Create data directory and taxonomy\n"
         "  archguard add < g.json  Add a guardrail from JSON on stdin\n"
         "  archguard search 'api'  Search guardrails by keyword\n"
         "  archguard check < d.json  Check a decision against the corpus\n"
-        "  archguard guide         Full CLI schema for agent bootstrap\n"
     ),
     no_args_is_help=True,
     pretty_exceptions_enable=False,
