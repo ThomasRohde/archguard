@@ -23,11 +23,12 @@ def init(
     ] = False,
     schema: Annotated[bool, typer.Option("--schema", help="Print output JSON schema")] = False,
 ) -> None:
-    """Create guardrails data directory, JSONL files, taxonomy, and download embedding model."""
+    """Create guardrails data directory, JSONL files, taxonomy, and .gitignore."""
     if explain:
         sys.stdout.write(
             "init creates the guardrails/ data directory with empty JSONL files, "
-            "a taxonomy.json, a .gitignore, and downloads the embedding model.\n"
+            "a taxonomy.json, and a .gitignore. The embedding model is bundled "
+            "with the package — no download needed.\n"
         )
         raise SystemExit(0)
 
@@ -56,11 +57,6 @@ def init(
     gitignore = data_dir / ".gitignore"
     if not gitignore.exists():
         gitignore.write_text(".guardrails.db\n")
-
-    # TODO: Download and store potion-base-8M model under data_dir/models/
-    # For now, create the directory structure
-    models_dir = data_dir / "models" / "potion-base-8M"
-    models_dir.mkdir(parents=True, exist_ok=True)
 
     sys.stdout.write(
         envelope("init", {"message": "Initialized guardrails repository", "path": str(data_dir)})
@@ -93,19 +89,23 @@ def build(
     refs_list = load_references(data_dir)
     links_list = load_links(data_dir)
 
-    # Attempt to compute embeddings if model is available
+    # Attempt to compute embeddings (bundled model or data-dir override)
     embeddings: dict[str, bytes] | None = None
     embedding_count = 0
-    model_dir = data_dir / "models" / "potion-base-8M"
     try:
-        from archguard.core.embeddings import embed_guardrail, embedding_to_blob, load_model
+        from archguard.core.embeddings import (
+            embed_guardrail,
+            embedding_to_blob,
+            try_load_model,
+        )
 
-        model = load_model(model_dir)
-        embeddings = {}
-        for g in guardrails_list:
-            vec = embed_guardrail(model, g)
-            embeddings[g.id] = embedding_to_blob(vec)
-        embedding_count = len(embeddings)
+        model = try_load_model(data_dir)
+        if model is not None:
+            embeddings = {}
+            for g in guardrails_list:
+                vec = embed_guardrail(model, g)
+                embeddings[g.id] = embedding_to_blob(vec)
+            embedding_count = len(embeddings)
     except Exception:
         embeddings = None
 

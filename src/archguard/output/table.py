@@ -27,7 +27,6 @@ def _status_style(status: str) -> str:
 
 
 def _capture(renderable: RenderableType) -> str:
-    import sys
 
     from archguard.output.json import is_interactive, is_llm_mode
 

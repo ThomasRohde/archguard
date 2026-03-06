@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 from typing import Annotated
 
-import orjson
 import typer
 
 from archguard.cli import app, handle_error, state

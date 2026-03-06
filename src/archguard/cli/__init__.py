@@ -49,6 +49,14 @@ class GlobalState:
 state = GlobalState()
 
 
+def _version_callback(value: bool) -> None:
+    if value:
+        from archguard import __version__
+
+        print(f"archguard {__version__}")
+        raise typer.Exit()
+
+
 @app.callback()
 def main(
     format: Annotated[
@@ -63,6 +71,15 @@ def main(
         str,
         typer.Option("--data-dir", "-d", help="Path to guardrails data directory"),
     ] = "guardrails",
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version", "-V",
+            help="Show version and exit.",
+            callback=_version_callback,
+            is_eager=True,
+        ),
+    ] = False,
 ) -> None:
     """Architecture guardrails management CLI."""
     # Per-invocation request context (request_id, timing)
@@ -79,17 +96,13 @@ def main(
     if format != "json":
         # Explicit format flag takes precedence
         state.format = format
-    elif is_llm_mode():
-        state.format = "json"
-    elif not is_interactive():
+    elif is_llm_mode() or not is_interactive():
         state.format = "json"
     else:
         state.format = format
 
     # Quiet: explicit flag wins, then LLM/pipe detection
-    if quiet:
-        state.quiet = True
-    elif is_llm_mode() or not is_interactive():
+    if quiet or is_llm_mode() or not is_interactive():
         state.quiet = True
     else:
         state.quiet = False

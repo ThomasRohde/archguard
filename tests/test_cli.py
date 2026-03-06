@@ -362,7 +362,7 @@ class TestSearchCommand:
         out = _parse(result.output)
         assert out["ok"] is True
 
-    def test_search_no_results(self, tmp_path) -> None:
+    def test_search_no_bm25_results(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
         runner.invoke(app, ["--data-dir", dd, "build"])
@@ -370,7 +370,9 @@ class TestSearchCommand:
         assert result.exit_code == 0
         out = _parse(result.output)
         assert out["ok"] is True
-        assert out["result"]["total"] == 0
+        # BM25 should not match nonsense; vector may return low-score results
+        for r in out["result"]["results"]:
+            assert "bm25" not in r["match_sources"]
 
     def test_search_auto_builds_index(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -1091,7 +1093,7 @@ class TestDeduplicateCommand:
         out = _parse(result.output)
         assert out["ok"] is True
         assert out["result"]["total"] >= 1
-        assert out["result"]["pairs"][0]["method"] == "jaccard"
+        assert out["result"]["pairs"][0]["method"] in ("jaccard", "embedding")
 
     def test_deduplicate_explain(self) -> None:
         result = runner.invoke(app, ["deduplicate", "--explain"])

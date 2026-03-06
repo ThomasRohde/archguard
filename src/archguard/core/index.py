@@ -183,18 +183,19 @@ def ensure_index(data_dir: Path) -> Path:
         links = load_links(data_dir)
 
         embeddings: dict[str, bytes] | None = None
-        model_dir = data_dir / "models" / "potion-base-8M"
         try:
             from archguard.core.embeddings import (
                 embed_guardrail,
                 embedding_to_blob,
-                load_model,
+                try_load_model,
             )
 
-            model = load_model(model_dir)
-            embeddings = {
-                g.id: embedding_to_blob(embed_guardrail(model, g)) for g in guardrails
-            }
+            model = try_load_model(data_dir)
+            if model is not None:
+                embeddings = {
+                    g.id: embedding_to_blob(embed_guardrail(model, g))
+                    for g in guardrails
+                }
         except Exception:
             embeddings = None
 

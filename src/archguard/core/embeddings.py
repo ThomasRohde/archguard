@@ -54,10 +54,24 @@ def blob_to_embedding(blob: bytes) -> npt.NDArray[np.float32]:
 
 MODEL_SUBDIR = Path("models") / "potion-base-8M"
 
+# Bundled model ships inside the package itself
+_BUNDLED_MODEL_DIR = Path(__file__).resolve().parent.parent / "models" / "potion-base-8M"
+
+
+def bundled_model_dir() -> Path:
+    """Return the path to the bundled potion-base-8M model."""
+    return _BUNDLED_MODEL_DIR
+
 
 def try_load_model(data_dir: Path) -> Any:
-    """Try to load the Model2Vec model; return None if unavailable."""
-    try:
-        return load_model(data_dir / MODEL_SUBDIR)
-    except Exception:
-        return None
+    """Try to load the Model2Vec model; return None if unavailable.
+
+    Checks data_dir first (for overrides), then falls back to the
+    bundled model shipped with the package.
+    """
+    for candidate in [data_dir / MODEL_SUBDIR, _BUNDLED_MODEL_DIR]:
+        try:
+            return load_model(candidate)
+        except Exception:
+            continue
+    return None

@@ -124,7 +124,7 @@ def _commands() -> dict:
             "mutates": True,
             "description": (
                 "Create guardrails data directory, JSONL files, "
-                "taxonomy, and download embedding model."
+                "taxonomy, and .gitignore."
             ),
             "args": [],
             "flags": ["--taxonomy PATH", "--explain", "--schema"],
