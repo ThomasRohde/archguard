@@ -324,15 +324,15 @@ def check(
     query = " ".join(query_parts)
 
     # Build filters from structured fields
-    filters: dict[str, str | None] = {}
+    filters: dict[str, str | list[str] | None] = {}
     if context.get("scope") and isinstance(context["scope"], list) and context["scope"]:
-        filters["scope"] = context["scope"][0]
+        filters["scope"] = context["scope"]
     if (
         context.get("applies_to")
         and isinstance(context["applies_to"], list)
         and context["applies_to"]
     ):
-        filters["applies_to"] = context["applies_to"][0]
+        filters["applies_to"] = context["applies_to"]
     if context.get("lifecycle_stage") and isinstance(context["lifecycle_stage"], str):
         filters["lifecycle_stage"] = context["lifecycle_stage"]
 
@@ -369,9 +369,9 @@ def _build_filters(
     applies_to: str | None,
     lifecycle_stage: str | None,
     owner: str | None,
-) -> dict[str, str | None] | None:
+) -> dict[str, str | list[str] | None] | None:
     """Build a filters dict from CLI options, or None if no filters."""
-    filters = {
+    filters: dict[str, str | list[str] | None] = {
         "status": status,
         "severity": severity,
         "scope": scope,

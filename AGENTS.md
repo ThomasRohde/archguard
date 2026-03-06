@@ -1,21 +1,21 @@
-# Agent Instructions: guardrails-cli
+# Agent Instructions: archguard
 
 ## Project overview
 
-This is a Python CLI tool (`guardrails-cli`) for managing architecture guardrails. It provides a queryable store backed by JSONL files (source of truth) and a SQLite index (derived artifact) with hybrid BM25 + vector search.
+This is a Python CLI tool (`archguard`) for managing architecture guardrails. It provides a queryable store backed by JSONL files (source of truth) and a SQLite index (derived artifact) with hybrid BM25 + vector search.
 
 ## Where to look first
 
 1. `PRD.md` -- The authoritative requirements document. All design decisions trace back here.
-2. `src/guardrails_cli/core/models.py` -- Pydantic data models define the domain.
-3. `src/guardrails_cli/core/store.py` -- JSONL persistence layer.
-4. `src/guardrails_cli/cli/` -- Command definitions (one file per command group).
+2. `src/archguard/core/models.py` -- Pydantic data models define the domain.
+3. `src/archguard/core/store.py` -- JSONL persistence layer.
+4. `src/archguard/cli/` -- Command definitions (one file per command group).
 
 ## Authoritative files
 
 - `PRD.md` -- Requirements and design decisions
 - `CLI-MANIFEST.md` -- CLI contract (output format, exit codes, discoverability)
-- `src/guardrails_cli/core/models.py` -- Data model definitions
+- `src/archguard/core/models.py` -- Data model definitions
 - `pyproject.toml` -- Dependencies and tool configuration
 
 ## Coding rules
@@ -27,13 +27,13 @@ This is a Python CLI tool (`guardrails-cli`) for managing architecture guardrail
 - stdout: structured JSON only (default). stderr: diagnostics.
 - Exit codes must match PRD Section 12 exactly
 - All write commands read JSON from stdin
-- All read commands support `--explain` and `--schema` flags
+- All commands support `--explain`; `add` and `check` support `--schema`
 
 ## Architectural invariants (do not change casually)
 
 - JSONL files are the source of truth; SQLite is derived
 - No LLM inference inside the CLI
-- No delete command (deprecate/supersede only)
+- Prefer deprecate/supersede over delete; delete exists but requires --confirm
 - Rewrite-on-edit for JSONL mutations
 - Lazy auto-build: check mtime before queries
 - Error responses use the `{"ok": false, "error": {...}}` envelope

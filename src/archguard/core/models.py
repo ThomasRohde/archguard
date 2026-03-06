@@ -4,7 +4,34 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+def _validate_iso_date(v: str | None) -> str | None:
+    """Validate that a string is a valid ISO 8601 date (YYYY-MM-DD)."""
+    if v is None:
+        return v
+    from datetime import date
+
+    try:
+        date.fromisoformat(v)
+    except (ValueError, TypeError) as e:
+        msg = f"Invalid ISO 8601 date: {v!r}"
+        raise ValueError(msg) from e
+    return v
+
+
+def _validate_iso_datetime(v: str) -> str:
+    """Validate that a string is a valid ISO 8601 datetime."""
+    from datetime import datetime
+
+    try:
+        datetime.fromisoformat(v)
+    except (ValueError, TypeError) as e:
+        msg = f"Invalid ISO 8601 datetime: {v!r}"
+        raise ValueError(msg) from e
+    return v
+
 
 # ---------------------------------------------------------------------------
 # Core domain models
@@ -36,6 +63,16 @@ class Guardrail(BaseModel):
     updated_at: str = Field(..., description="ISO 8601 datetime")
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("review_date", mode="before")
+    @classmethod
+    def _validate_review_date(cls, v: str | None) -> str | None:
+        return _validate_iso_date(v)
+
+    @field_validator("created_at", "updated_at", mode="before")
+    @classmethod
+    def _validate_timestamps(cls, v: str) -> str:
+        return _validate_iso_datetime(v)
+
 
 class Reference(BaseModel):
     """An external citation linking a guardrail to its authoritative source."""
@@ -47,6 +84,11 @@ class Reference(BaseModel):
     ref_url: str | None = None
     excerpt: str = ""
     added_at: str
+
+    @field_validator("added_at", mode="before")
+    @classmethod
+    def _validate_added_at(cls, v: str) -> str:
+        return _validate_iso_datetime(v)
 
 
 class Link(BaseModel):
@@ -81,6 +123,11 @@ class GuardrailCreate(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
     references: list[ReferenceCreate] = Field(default_factory=lambda: [])
 
+    @field_validator("review_date", mode="before")
+    @classmethod
+    def _validate_review_date(cls, v: str | None) -> str | None:
+        return _validate_iso_date(v)
+
     @classmethod
     def model_json_schema_str(cls) -> str:
         import orjson
@@ -96,6 +143,39 @@ class ReferenceCreate(BaseModel):
     ref_title: str
     ref_url: str | None = None
     excerpt: str = ""
+
+
+class GuardrailImport(BaseModel):
+    """Input for importing a guardrail with optional identity preservation."""
+
+    id: str | None = None
+    title: str = Field(..., min_length=1, max_length=200)
+    status: Literal["draft", "active", "deprecated", "superseded"] = "draft"
+    severity: Literal["must", "should", "may"]
+    rationale: str = Field(..., min_length=1)
+    guidance: str = Field(..., min_length=1)
+    exceptions: str = Field(default="")
+    consequences: str = Field(default="")
+    scope: list[str] = Field(..., min_length=1)
+    applies_to: list[str] = Field(..., min_length=1)
+    lifecycle_stage: list[str] = Field(default=["acquire", "build", "operate", "retire"])
+    owner: str = Field(..., min_length=1)
+    review_date: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("review_date", mode="before")
+    @classmethod
+    def _validate_review_date(cls, v: str | None) -> str | None:
+        return _validate_iso_date(v)
+
+    @field_validator("created_at", "updated_at", mode="before")
+    @classmethod
+    def _validate_timestamps(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        return _validate_iso_datetime(v)
 
 
 class GuardrailPatch(BaseModel):
@@ -114,6 +194,11 @@ class GuardrailPatch(BaseModel):
     owner: str | None = None
     review_date: str | None = None
     metadata: dict[str, Any] | None = None
+
+    @field_validator("review_date", mode="before")
+    @classmethod
+    def _validate_review_date(cls, v: str | None) -> str | None:
+        return _validate_iso_date(v)
 
 
 # ---------------------------------------------------------------------------

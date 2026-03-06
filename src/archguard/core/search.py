@@ -91,7 +91,7 @@ def hybrid_search(
     db_path: Path,
     query: str,
     model: Any = None,
-    filters: dict[str, str | None] | None = None,
+    filters: dict[str, str | list[str] | None] | None = None,
     top: int = 10,
     min_score: float = DEFAULT_MIN_SCORE,
 ) -> tuple[list[SearchResult], int]:
@@ -138,29 +138,35 @@ def hybrid_search(
 
             # Apply post-ranking filters
             if filters:
-                status_filter: str | None = filters.get("status")
-                if status_filter and row[3] != status_filter:
+                status_val = filters.get("status")
+                if isinstance(status_val, str) and row[3] != status_val:
                     continue
-                severity_filter: str | None = filters.get("severity")
-                if severity_filter and row[2] != severity_filter:
+                severity_val = filters.get("severity")
+                if isinstance(severity_val, str) and row[2] != severity_val:
                     continue
-                scope_filter: str | None = filters.get("scope")
-                if scope_filter:
+                scope_val = filters.get("scope")
+                if scope_val:
                     row_scope: list[str] = orjson.loads(row[5])
-                    if scope_filter not in row_scope:
+                    if isinstance(scope_val, list):
+                        if not any(s in row_scope for s in scope_val):
+                            continue
+                    elif scope_val not in row_scope:
                         continue
-                applies_filter: str | None = filters.get("applies_to")
-                if applies_filter:
+                applies_val = filters.get("applies_to")
+                if applies_val:
                     row_applies: list[str] = orjson.loads(row[6])
-                    if applies_filter not in row_applies:
+                    if isinstance(applies_val, list):
+                        if not any(a in row_applies for a in applies_val):
+                            continue
+                    elif applies_val not in row_applies:
                         continue
-                lc_filter: str | None = filters.get("lifecycle_stage")
-                if lc_filter:
+                lc_val = filters.get("lifecycle_stage")
+                if isinstance(lc_val, str):
                     row_lc: list[str] = orjson.loads(row[7])
-                    if lc_filter not in row_lc:
+                    if lc_val not in row_lc:
                         continue
-                owner_filter: str | None = filters.get("owner")
-                if owner_filter and row[8] != owner_filter:
+                owner_val = filters.get("owner")
+                if isinstance(owner_val, str) and row[8] != owner_val:
                     continue
 
             score = round(rd.rrf, 6)

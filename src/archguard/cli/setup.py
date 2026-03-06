@@ -31,6 +31,17 @@ def init(
             "with the package — no download needed.\n"
         )
         raise SystemExit(0)
+    if schema:
+        schema_data = {
+            "command": "init",
+            "output_fields": ["message", "path"],
+            "flags": {
+                "--taxonomy": "Path to JSON taxonomy file to bootstrap",
+                "--data-dir": "Path to guardrails data directory (default: guardrails)",
+            },
+        }
+        sys.stdout.write(envelope("init", {"schema": schema_data}) + "\n")
+        raise SystemExit(0)
 
     data_dir = Path(state.data_dir)
     already_exists = data_dir.exists()

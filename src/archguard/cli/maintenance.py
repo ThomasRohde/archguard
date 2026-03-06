@@ -221,7 +221,7 @@ def import_guardrails(
     from ulid import ULID
 
     from archguard.cli import state
-    from archguard.core.models import Guardrail, GuardrailCreate
+    from archguard.core.models import Guardrail, GuardrailImport
     from archguard.core.store import load_guardrails, load_taxonomy, rewrite_jsonl
 
     file_path = Path(file)
@@ -238,6 +238,7 @@ def import_guardrails(
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
     taxonomy = load_taxonomy(data_dir)
+    by_id = {g.id: g for g in guardrails}
     by_title = {g.title: g for g in guardrails}
 
     raw_records: list[dict[str, Any]] = []
@@ -280,56 +281,69 @@ def import_guardrails(
 
     for i, raw in enumerate(raw_records):
         try:
-            create = GuardrailCreate.model_validate(raw)
+            imp = GuardrailImport.model_validate(raw)
         except Exception as exc:
             errors.append(f"Record {i}: {exc}")
             continue
 
         if taxonomy:
-            bad_scopes = [s for s in create.scope if s not in taxonomy]
+            bad_scopes = [s for s in imp.scope if s not in taxonomy]
             if bad_scopes:
                 errors.append(f"Record {i}: invalid scope values: {bad_scopes}")
                 continue
 
-        if create.title in by_title:
-            existing = by_title[create.title]
+        # Upsert: match by ID first, then by title
+        existing: Guardrail | None = None
+        if imp.id and imp.id in by_id:
+            existing = by_id[imp.id]
+        elif imp.title in by_title:
+            existing = by_title[imp.title]
+
+        if existing is not None:
             merged = existing.model_dump()
-            for field, value in create.model_dump(exclude_defaults=True).items():
-                if value is not None and field != "references":
-                    merged[field] = value
-            merged["updated_at"] = now
+            for field_name, value in imp.model_dump(exclude_none=True).items():
+                if field_name not in ("id", "created_at"):
+                    merged[field_name] = value
+            merged["updated_at"] = imp.updated_at or now
             updated_obj = Guardrail.model_validate(merged)
-            by_title[create.title] = updated_obj
+            by_id[existing.id] = updated_obj
+            by_title[updated_obj.title] = updated_obj
             for idx_val, g in enumerate(guardrails):
-                if g.title == create.title:
+                if g.id == existing.id:
                     guardrails[idx_val] = updated_obj
                     break
             updated_count += 1
         else:
-            new_id = str(ULID())
+            guardrail_id = imp.id or str(ULID())
             full = Guardrail(
-                id=new_id,
-                title=create.title,
-                status=create.status,
-                severity=create.severity,
-                rationale=create.rationale,
-                guidance=create.guidance,
-                exceptions=create.exceptions,
-                consequences=create.consequences,
-                scope=create.scope,
-                applies_to=create.applies_to,
-                lifecycle_stage=create.lifecycle_stage,
-                owner=create.owner,
-                review_date=create.review_date,
-                created_at=now,
-                updated_at=now,
-                metadata=create.metadata,
+                id=guardrail_id,
+                title=imp.title,
+                status=imp.status,
+                severity=imp.severity,
+                rationale=imp.rationale,
+                guidance=imp.guidance,
+                exceptions=imp.exceptions,
+                consequences=imp.consequences,
+                scope=imp.scope,
+                applies_to=imp.applies_to,
+                lifecycle_stage=imp.lifecycle_stage,
+                owner=imp.owner,
+                review_date=imp.review_date,
+                created_at=imp.created_at or now,
+                updated_at=imp.updated_at or now,
+                metadata=imp.metadata,
             )
             guardrails.append(full)
-            by_title[create.title] = full
+            by_id[full.id] = full
+            by_title[full.title] = full
             new_count += 1
 
     rewrite_jsonl(data_dir / "guardrails.jsonl", guardrails)
+
+    # Rebuild index
+    from archguard.core.index import ensure_index
+
+    ensure_index(data_dir)
 
     sys.stdout.write(
         envelope("import", {"imported": new_count, "updated": updated_count, "errors": errors})

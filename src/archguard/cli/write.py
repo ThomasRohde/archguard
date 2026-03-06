@@ -218,6 +218,11 @@ def update(
     guardrails[idx] = Guardrail.model_validate(updated_data)
     rewrite_jsonl(data_dir / "guardrails.jsonl", guardrails)
 
+    # Rebuild index
+    from archguard.core.index import ensure_index
+
+    ensure_index(data_dir)
+
     # Check RFC 2119 severity consistency
     from archguard.core.validator import check_severity_consistency
 
@@ -293,6 +298,11 @@ def ref_add(
     )
     append_jsonl(data_dir / "references.jsonl", ref)
 
+    # Rebuild index
+    from archguard.core.index import ensure_index
+
+    ensure_index(data_dir)
+
     sys.stdout.write(
         envelope("ref-add", {"reference": ref.model_dump()}) + "\n"
     )
@@ -350,6 +360,11 @@ def link(
         note=note,
     )
     append_jsonl(data_dir / "links.jsonl", link_record)
+
+    # Rebuild index
+    from archguard.core.index import ensure_index
+
+    ensure_index(data_dir)
 
     sys.stdout.write(
         envelope("link", {"link": link_record.model_dump()}) + "\n"
@@ -479,6 +494,11 @@ def deprecate(
     guardrails[idx] = Guardrail.model_validate(updated_data)
     rewrite_jsonl(data_dir / "guardrails.jsonl", guardrails)
 
+    # Rebuild index
+    from archguard.core.index import ensure_index
+
+    ensure_index(data_dir)
+
     sys.stdout.write(
         envelope("deprecate", {"guardrail": guardrails[idx].model_dump()}) + "\n"
     )
@@ -551,6 +571,11 @@ def supersede(
         from_id=by, to_id=guardrail_id, rel_type="implements", note="",
     )
     append_jsonl(data_dir / "links.jsonl", link_record)
+
+    # Rebuild index
+    from archguard.core.index import ensure_index
+
+    ensure_index(data_dir)
 
     sys.stdout.write(
         envelope("supersede", {
