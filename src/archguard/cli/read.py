@@ -8,7 +8,14 @@ from typing import Annotated, Any
 
 import typer
 
-from archguard.cli import app, handle_error, state
+from archguard.cli import (
+    app,
+    emit_index_build_notice,
+    ensure_supported_format,
+    handle_error,
+    state,
+    summarize_validation_error,
+)
 from archguard.output.json import envelope
 
 
@@ -53,6 +60,7 @@ def search(
     from archguard.core.search import hybrid_search
 
     data_dir = Path(state.data_dir)
+    emit_index_build_notice("search", data_dir)
     db_path = ensure_index(data_dir)
 
     # Try to load model for vector search (graceful None if missing)
@@ -145,6 +153,8 @@ def related(
             "including the relationship type and direction.\n"
         )
         raise SystemExit(0)
+
+    ensure_supported_format("related", "json")
 
     from archguard.core.store import load_guardrails, load_links
 
@@ -302,9 +312,13 @@ def check(
         sys.stdout.write(envelope("check", {"schema": schema_data}) + "\n")
         raise SystemExit(0)
 
+    ensure_supported_format("check", "json")
+
     import orjson
+    from pydantic import ValidationError
 
     from archguard.core.index import ensure_index
+    from archguard.core.models import CheckContext
     from archguard.core.search import hybrid_search
 
     data_dir = Path(state.data_dir)
@@ -317,17 +331,18 @@ def check(
         handle_error("check", "ERR_VALIDATION_JSON", "Invalid JSON on stdin")
         return
 
-    # Validate required field
-    decision = context.get("decision")
-    if not decision or not isinstance(decision, str):
-        handle_error(
-            "check", "ERR_VALIDATION_INPUT",
-            "Field 'decision' is required and must be a string",
-        )
+    try:
+        validated_context = CheckContext.model_validate(context)
+    except ValidationError as e:
+        message, details = summarize_validation_error(e)
+        handle_error("check", "ERR_VALIDATION", message, details)
         return
 
+    context = validated_context.model_dump()
+    decision = validated_context.decision
+
     # Build search query from decision + tags
-    raw_tags: list[str] = context.get("tags") or []
+    raw_tags = validated_context.tags
     query_parts: list[str] = [decision]
     if raw_tags:
         query_parts.extend(raw_tags)
@@ -335,17 +350,14 @@ def check(
 
     # Build filters from structured fields
     filters: dict[str, str | list[str] | None] = {}
-    if context.get("scope") and isinstance(context["scope"], list) and context["scope"]:
-        filters["scope"] = context["scope"]
-    if (
-        context.get("applies_to")
-        and isinstance(context["applies_to"], list)
-        and context["applies_to"]
-    ):
-        filters["applies_to"] = context["applies_to"]
-    if context.get("lifecycle_stage") and isinstance(context["lifecycle_stage"], str):
-        filters["lifecycle_stage"] = context["lifecycle_stage"]
+    if validated_context.scope:
+        filters["scope"] = validated_context.scope
+    if validated_context.applies_to:
+        filters["applies_to"] = validated_context.applies_to
+    if validated_context.lifecycle_stage:
+        filters["lifecycle_stage"] = validated_context.lifecycle_stage
 
+    emit_index_build_notice("check", data_dir)
     db_path = ensure_index(data_dir)
     model = _try_load_model(data_dir)
 
@@ -356,6 +368,7 @@ def check(
     for r in results:
         if r.severity in summary:
             summary[r.severity] += 1
+    summary["total"] = len(results)
 
     result_payload = {
         "context": context,

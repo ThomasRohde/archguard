@@ -57,6 +57,7 @@ def vector_search(
     conn: sqlite3.Connection,
     query_embedding: npt.NDArray[np.float32],
     limit: int = 100,
+    min_similarity: float = 0.0,
 ) -> list[tuple[str, int]]:
     """Load all non-NULL embeddings, compute cosine similarity, return top results."""
     rows = conn.execute(
@@ -69,7 +70,8 @@ def vector_search(
     for row in rows:
         emb = blob_to_embedding(row[1])
         sim = cosine_similarity(np.array(query_embedding, dtype=np.float32), emb)
-        scored.append((row[0], sim))
+        if sim >= min_similarity:
+            scored.append((row[0], sim))
 
     scored.sort(key=lambda x: x[1], reverse=True)
     return [(doc_id, i + 1) for i, (doc_id, _) in enumerate(scored[:limit])]
@@ -112,7 +114,7 @@ def hybrid_search(
             from archguard.core.embeddings import embed_text
 
             query_embedding = embed_text(model, query)
-            vector_results = vector_search(conn, query_embedding)
+            vector_results = vector_search(conn, query_embedding, min_similarity=0.3)
             for doc_id, _ in vector_results:
                 match_sources_map.setdefault(doc_id, []).append("vector")
 

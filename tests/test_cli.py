@@ -206,6 +206,44 @@ class TestAddCommand:
         result = runner.invoke(app, ["--data-dir", dd, "add"], input="not json")
         assert result.exit_code == 10  # EXIT_VALIDATION
 
+    def test_add_missing_required_field_reports_cli_message(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        bad_input = json.dumps(
+            {
+                "title": "Missing guidance",
+                "severity": "should",
+                "rationale": "Test",
+                "scope": ["it-platform"],
+                "applies_to": ["technology"],
+                "owner": "Platform Team",
+            }
+        )
+        result = runner.invoke(app, ["--data-dir", dd, "add"], input=bad_input)
+        assert result.exit_code == 10
+        out = _parse(result.output)
+        assert out["ok"] is False
+        assert out["errors"][0]["message"] == "Missing required field: guidance"
+
+    def test_add_active_requires_reference(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        active_input = json.dumps(
+            {
+                "title": "Active without refs",
+                "status": "active",
+                "severity": "should",
+                "rationale": "Test",
+                "guidance": "Use managed offerings",
+                "scope": ["it-platform"],
+                "applies_to": ["technology"],
+                "owner": "Platform Team",
+            }
+        )
+        result = runner.invoke(app, ["--data-dir", dd, "add"], input=active_input)
+        assert result.exit_code == 10
+        out = _parse(result.output)
+        assert out["ok"] is False
+        assert "Active guardrails require at least one reference" in out["errors"][0]["message"]
+
     def test_add_with_references(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         input_with_refs = json.dumps(
@@ -418,6 +456,7 @@ class TestCheckCommand:
         assert "must" in out["result"]["summary"]
         assert "should" in out["result"]["summary"]
         assert "may" in out["result"]["summary"]
+        assert "total" in out["result"]["summary"]
 
     def test_check_invalid_json(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -514,6 +553,11 @@ class TestRelatedCommand:
 class TestHelpFlags:
     def test_main_help(self) -> None:
         result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "guardrails" in _strip_ansi(result.output).lower()
+
+    def test_short_help_alias(self) -> None:
+        result = runner.invoke(app, ["-h"])
         assert result.exit_code == 0
         assert "guardrails" in _strip_ansi(result.output).lower()
 
@@ -1094,7 +1138,36 @@ class TestDeduplicateCommand:
         out = _parse(result.output)
         assert out["ok"] is True
         assert out["result"]["total"] >= 1
-        assert out["result"]["pairs"][0]["method"] in ("jaccard", "embedding")
+        assert out["result"]["pairs"][0]["method"] in ("jaccard", "hybrid")
+
+    def test_deduplicate_default_threshold_catches_near_duplicate(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        g1 = json.dumps({
+            "title": "Use managed databases for production workloads",
+            "severity": "should",
+            "rationale": "Managed platforms reduce operational toil and improve resilience",
+            "guidance": "Use managed relational database services for production workloads.",
+            "scope": ["it-platform"],
+            "applies_to": ["technology"],
+            "owner": "Platform Team",
+        })
+        g2 = json.dumps({
+            "title": "Prefer managed relational databases in production",
+            "severity": "should",
+            "rationale": "Managed platforms reduce operational toil and improve resilience",
+            "guidance": "Prefer managed relational database services for production workloads.",
+            "scope": ["it-platform"],
+            "applies_to": ["technology"],
+            "owner": "Platform Team",
+        })
+        _add_guardrail(dd, g1)
+        _add_guardrail(dd, g2)
+        result = runner.invoke(app, ["--data-dir", dd, "deduplicate"])
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        assert out["ok"] is True
+        assert out["result"]["threshold"] == 0.8
+        assert out["result"]["total"] >= 1
 
     def test_deduplicate_explain(self) -> None:
         result = runner.invoke(app, ["deduplicate", "--explain"])
@@ -1109,6 +1182,29 @@ def _strip_ansi(text: str) -> str:
 
 
 class TestFormatFlag:
+    def test_init_table_format_fails_clearly(self, tmp_path) -> None:
+        data_dir = tmp_path / "guardrails"
+        result = runner.invoke(app, ["--data-dir", str(data_dir), "-f", "table", "init"])
+        assert result.exit_code == 10
+        out = _parse(result.output)
+        assert out["ok"] is False
+        assert out["errors"][0]["code"] == "ERR_VALIDATION_FORMAT"
+
+    def test_validate_markdown_format_fails_clearly(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        result = runner.invoke(app, ["--data-dir", dd, "-f", "markdown", "validate"])
+        assert result.exit_code == 10
+        out = _parse(result.output)
+        assert out["ok"] is False
+        assert out["errors"][0]["code"] == "ERR_VALIDATION_FORMAT"
+
+    def test_guide_markdown_format_fails_clearly(self) -> None:
+        result = runner.invoke(app, ["-f", "markdown", "guide"])
+        assert result.exit_code == 10
+        out = _parse(result.output)
+        assert out["ok"] is False
+        assert out["errors"][0]["code"] == "ERR_VALIDATION_FORMAT"
+
     def test_list_table_format(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         _add_guardrail(dd)

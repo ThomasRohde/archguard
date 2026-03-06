@@ -22,6 +22,16 @@ class TestValidateCorpusClean:
         result = validate_corpus(tmp_data_dir)
         assert result.ok
 
+    def test_active_guardrail_without_reference_warns(
+        self, tmp_data_dir: Path, sample_guardrail_dict: dict
+    ) -> None:
+        (tmp_data_dir / "guardrails.jsonl").write_bytes(
+            orjson.dumps(sample_guardrail_dict) + b"\n"
+        )
+        result = validate_corpus(tmp_data_dir)
+        assert result.ok
+        assert any("status is 'active' but no references found" in w for w in result.warnings)
+
 
 class TestValidateCorpusErrors:
     def test_duplicate_ids(self, tmp_data_dir: Path, sample_guardrail_dict: dict) -> None:

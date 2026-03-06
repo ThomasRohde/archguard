@@ -8,8 +8,30 @@ from typing import Annotated, Any
 
 import typer
 
-from archguard.cli import app, handle_error, state
+from archguard.cli import (
+    app,
+    emit_index_build_notice,
+    ensure_supported_format,
+    handle_error,
+    state,
+    summarize_validation_error,
+)
 from archguard.output.json import envelope
+
+
+def _enforce_active_references(command: str, *, is_active: bool, reference_count: int) -> None:
+    """Require references when a new or newly-activated guardrail becomes active."""
+    if not is_active or reference_count > 0:
+        return
+    handle_error(
+        command,
+        "ERR_VALIDATION",
+        (
+            "Active guardrails require at least one reference."
+            " Add references first, or create the guardrail as draft and promote it later."
+        ),
+        details={"status": "active", "references": reference_count},
+    )
 
 
 @app.command()
@@ -49,6 +71,8 @@ def add(
         sys.stdout.write(envelope("add", {"schema": schema_data}) + "\n")
         raise SystemExit(0)
 
+    ensure_supported_format("add", "json")
+
     import orjson
     from pydantic import ValidationError
     from ulid import ULID
@@ -72,7 +96,8 @@ def add(
     try:
         create = GuardrailCreate.model_validate(payload)
     except ValidationError as e:
-        handle_error("add", "ERR_VALIDATION", f"Validation failed: {e}")
+        message, details = summarize_validation_error(e)
+        handle_error("add", "ERR_VALIDATION", message, details)
         return  # unreachable, keeps type checker happy
 
     # Validate scope against taxonomy
@@ -94,6 +119,12 @@ def add(
                 "add", "ERR_CONFLICT_EXISTS",
                 f"Guardrail with title '{create.title}' already exists",
             )
+
+    _enforce_active_references(
+        "add",
+        is_active=create.status == "active",
+        reference_count=len(create.references),
+    )
 
     # Generate ID and timestamps
     from datetime import UTC, datetime
@@ -124,6 +155,7 @@ def add(
 
     # Handle inline references
     refs_created: list[dict[str, Any]] = []
+    refs_for_checks: list[Reference] = []
     if create.references:
         for ref_create in create.references:
             ref = Reference(
@@ -137,8 +169,10 @@ def add(
             )
             append_jsonl(data_dir / "references.jsonl", ref)
             refs_created.append(ref.model_dump())
+            refs_for_checks.append(ref)
 
     # Rebuild index
+    emit_index_build_notice("add", data_dir)
     ensure_index(data_dir)
 
     # Check authoring quality (RFC 2119 consistency + semantic warnings)
@@ -147,7 +181,7 @@ def add(
     all_warnings = check_severity_consistency(guardrail)
 
     # For must+active guardrails, pass inline refs for reference-presence check
-    inline_refs = refs_created if refs_created else None
+    inline_refs = refs_for_checks if refs_for_checks else None
     all_warnings.extend(
         check_authoring_quality(guardrail, references=inline_refs),
     )
@@ -186,6 +220,8 @@ def update(
         )
         raise SystemExit(0)
 
+    ensure_supported_format("update", "json")
+
     import orjson
     from pydantic import ValidationError
 
@@ -207,7 +243,8 @@ def update(
     try:
         patch = GuardrailPatch.model_validate(payload)
     except ValidationError as e:
-        handle_error("update", "ERR_VALIDATION", f"Validation failed: {e}")
+        message, details = summarize_validation_error(e)
+        handle_error("update", "ERR_VALIDATION", message, details)
         return
 
     # Disallow status changes to superseded via update — use supersede command
@@ -240,11 +277,20 @@ def update(
     from datetime import UTC, datetime
 
     from archguard.core.models import Guardrail
+    from archguard.core.store import load_references
 
     patch_data = patch.model_dump(exclude_none=True)
     updated_data = guardrails[idx].model_dump()
     updated_data.update(patch_data)
     updated_data["updated_at"] = datetime.now(UTC).isoformat()
+
+    existing_refs = [r for r in load_references(data_dir) if r.guardrail_id == guardrail_id]
+    is_newly_active = guardrails[idx].status != "active" and updated_data["status"] == "active"
+    _enforce_active_references(
+        "update",
+        is_active=is_newly_active,
+        reference_count=len(existing_refs),
+    )
 
     guardrails[idx] = Guardrail.model_validate(updated_data)
     rewrite_jsonl(data_dir / "guardrails.jsonl", guardrails)
@@ -252,6 +298,7 @@ def update(
     # Rebuild index
     from archguard.core.index import ensure_index
 
+    emit_index_build_notice("update", data_dir)
     ensure_index(data_dir)
 
     # Check authoring quality (RFC 2119 consistency + semantic warnings)
@@ -260,9 +307,7 @@ def update(
     all_warnings = check_severity_consistency(guardrails[idx])
 
     # Load references for must+active reference-presence check
-    from archguard.core.store import load_references
-
-    refs = [r for r in load_references(data_dir) if r.guardrail_id == guardrail_id]
+    refs = existing_refs
     all_warnings.extend(
         check_authoring_quality(guardrails[idx], references=refs),
     )
@@ -302,6 +347,8 @@ def ref_add(
         )
         raise SystemExit(0)
 
+    ensure_supported_format("ref-add", "json")
+
     import orjson
     from pydantic import ValidationError
 
@@ -323,7 +370,8 @@ def ref_add(
     try:
         ref_create = ReferenceCreate.model_validate(payload)
     except ValidationError as e:
-        handle_error("ref-add", "ERR_VALIDATION", f"Validation failed: {e}")
+        message, details = summarize_validation_error(e)
+        handle_error("ref-add", "ERR_VALIDATION", message, details)
         return
 
     # Verify guardrail exists
@@ -348,6 +396,7 @@ def ref_add(
     # Rebuild index
     from archguard.core.index import ensure_index
 
+    emit_index_build_notice("ref-add", data_dir)
     ensure_index(data_dir)
 
     sys.stdout.write(
@@ -389,6 +438,8 @@ def link(
         )
         raise SystemExit(0)
 
+    ensure_supported_format("link", "json")
+
     from archguard.core.models import Link as LinkModel
     from archguard.core.store import append_jsonl, load_guardrails
 
@@ -421,6 +472,7 @@ def link(
     # Rebuild index
     from archguard.core.index import ensure_index
 
+    emit_index_build_notice("link", data_dir)
     ensure_index(data_dir)
 
     sys.stdout.write(
@@ -444,6 +496,8 @@ def delete(
             "(auto-confirmed when LLM=true). Rebuilds the index afterward.\n"
         )
         raise SystemExit(0)
+
+    ensure_supported_format("delete", "json")
 
     from archguard.output.json import is_llm_mode
 
@@ -491,6 +545,7 @@ def delete(
     rewrite_jsonl(data_dir / "links.jsonl", links)
 
     # Rebuild index
+    emit_index_build_notice("delete", data_dir)
     ensure_index(data_dir)
 
     sys.stdout.write(
@@ -517,6 +572,8 @@ def deprecate(
             "and records the reason in metadata.\n"
         )
         raise SystemExit(0)
+
+    ensure_supported_format("deprecate", "json")
 
     from archguard.core.store import load_guardrails, rewrite_jsonl
 
@@ -554,6 +611,7 @@ def deprecate(
     # Rebuild index
     from archguard.core.index import ensure_index
 
+    emit_index_build_notice("deprecate", data_dir)
     ensure_index(data_dir)
 
     sys.stdout.write(
@@ -577,6 +635,8 @@ def supersede(
             "'implements' link from the new guardrail to the old one.\n"
         )
         raise SystemExit(0)
+
+    ensure_supported_format("supersede", "json")
 
     from archguard.core.models import Guardrail
     from archguard.core.models import Link as LinkModel
@@ -632,6 +692,7 @@ def supersede(
     # Rebuild index
     from archguard.core.index import ensure_index
 
+    emit_index_build_notice("supersede", data_dir)
     ensure_index(data_dir)
 
     sys.stdout.write(

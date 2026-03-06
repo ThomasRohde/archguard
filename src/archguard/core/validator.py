@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from archguard.core.models import Guardrail
+from archguard.core.models import Guardrail, Reference
 from archguard.core.store import load_guardrails, load_links, load_references, load_taxonomy
 
 # ---------------------------------------------------------------------------
@@ -71,7 +71,7 @@ def check_severity_consistency(guardrail: Guardrail) -> list[str]:
 
 def check_authoring_quality(
     guardrail: Guardrail,
-    references: list | None = None,
+    references: list[Reference] | None = None,
 ) -> list[str]:
     """Return warnings for common authoring quality issues.
 
@@ -129,14 +129,13 @@ def check_authoring_quality(
             f"Assign an accountable role or team."
         )
 
-    # must severity without references
-    if guardrail.severity == "must" and guardrail.status == "active":
+    # Active guardrails should always cite an authoritative source.
+    if guardrail.status == "active":
         has_refs = references is not None and len(references) > 0
         if not has_refs:
             warnings.append(
-                f"Guardrail {gid}: severity is 'must' and status is 'active' "
-                f"but no references found. Mandatory rules should cite "
-                f"their authoritative source."
+                f"Guardrail {gid}: status is 'active' but no references found. "
+                f"Active guardrails should cite at least one authoritative source."
             )
 
     return warnings
@@ -193,11 +192,8 @@ def validate_corpus(data_dir: Path) -> ValidationResult:
                         f"Guardrail {g.id}: scope '{s}' not in taxonomy. Allowed: {taxonomy}"
                     )
 
-    # Check severity vs. text consistency (RFC 2119 keyword conflicts)
-    for g in guardrails:
-        result.warnings.extend(check_severity_consistency(g))
-
     # Load and check references
+    references = []
     try:
         references = load_references(data_dir)
         for ref in references:
@@ -208,6 +204,17 @@ def validate_corpus(data_dir: Path) -> ValidationResult:
                 )
     except Exception as e:
         result.errors.append(f"Failed to parse references.jsonl: {e}")
+
+    refs_by_guardrail: dict[str, list[Reference]] = {}
+    for ref in references:
+        refs_by_guardrail.setdefault(ref.guardrail_id, []).append(ref)
+
+    # Check severity vs. text consistency and authoring quality
+    for g in guardrails:
+        result.warnings.extend(check_severity_consistency(g))
+        result.warnings.extend(
+            check_authoring_quality(g, refs_by_guardrail.get(g.id, [])),
+        )
 
     # Load and check links
     try:

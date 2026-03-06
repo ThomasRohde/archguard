@@ -8,7 +8,7 @@ from typing import Annotated
 
 import typer
 
-from archguard.cli import app, state
+from archguard.cli import app, emit_index_build_notice, ensure_supported_format, state
 from archguard.output.json import envelope
 
 
@@ -42,6 +42,8 @@ def init(
         }
         sys.stdout.write(envelope("init", {"schema": schema_data}) + "\n")
         raise SystemExit(0)
+
+    ensure_supported_format("init", "json")
 
     data_dir = Path(state.data_dir)
     already_exists = data_dir.exists()
@@ -102,11 +104,15 @@ def build(
         )
         raise SystemExit(0)
 
+    ensure_supported_format("build", "json")
+
     from archguard.core.index import build_index
     from archguard.core.store import load_guardrails, load_links, load_references
 
     data_dir = Path(state.data_dir)
     db_path = data_dir / ".guardrails.db"
+
+    emit_index_build_notice("build", data_dir, explicit=True)
 
     guardrails_list = load_guardrails(data_dir)
     refs_list = load_references(data_dir)
@@ -163,6 +169,8 @@ def validate(
             "match the taxonomy.\n"
         )
         raise SystemExit(0)
+
+    ensure_supported_format("validate", "json")
 
     from archguard.core.validator import validate_corpus
     from archguard.output.json import EXIT_VALIDATION

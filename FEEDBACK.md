@@ -1,143 +1,125 @@
-# Review Feedback
+# Archguard CLI Blackbox Feedback
+
+Tested `archguard 1.5.0` on Windows PowerShell on March 6, 2026.
+
+## What works well
+
+- `archguard guide` is the strongest part of the product. It gives a machine-readable schema, workflow guidance, examples, error codes, and compatibility expectations in one call.
+- The happy path works end to end: `init`, `add`, `list`, `search`, `check`, `get`, `review-due`, and `export` all worked against a fresh data directory.
+- The JSON envelope is good for automation. `ok`, `errors`, `warnings`, `request_id`, and `metrics.duration_ms` make the CLI predictable for agents.
+- Human-readable output is solid where it is implemented. `list`, `search`, `stats`, and `export` produced clean `table` / `markdown` output.
+- Error codes were mostly consistent. Invalid JSON, duplicate title, and taxonomy mismatch all returned structured failures.
 
 ## Findings
 
-1. **High: invalid date strings are accepted and later crash read/export paths**
+### 1. `validate` does not enforce the tool's own "active guardrails need references" rule
 
-   Files:
-   `src/archguard/core/models.py:33-36`
-   `src/archguard/core/models.py:80`
-   `src/archguard/cli/maintenance.py:50`
-   `src/archguard/cli/maintenance.py:104-105`
-   `src/archguard/output/markdown.py:117`
-   `src/archguard/output/markdown.py:169`
-   `src/archguard/output/markdown.py:258`
+The guide says:
 
-   Why this matters:
-   `review_date`, `created_at`, `updated_at`, and `added_at` are modeled as plain `str`, so `add`, `update`, and `import` accept invalid values. Later code assumes valid ISO dates and either compares them lexicographically or calls `date.fromisoformat(...)`, which raises at runtime.
+- "Active guardrails have at least one authoritative reference."
+- "Setting status=active without attaching references" is an anti-pattern.
 
-   Repro:
-   ```powershell
-   uv run archguard --data-dir $dir init | Out-Null
-   '{"title":"Bad review","severity":"must","rationale":"r","guidance":"g","scope":["it-platform"],"applies_to":["service"],"owner":"o","review_date":"not-a-date"}' | uv run archguard --data-dir $dir add | Out-Null
-   uv run archguard --data-dir $dir export --format markdown
-   ```
-   This crashes with `ValueError: Invalid isoformat string: 'not-a-date'`.
+Repro:
 
-   Recommended fix:
-   Use real Pydantic date/datetime types, normalize them on write, and reject invalid input in `add`, `update`, and `import`. That also removes the current string-comparison bugs in `stats`, `list --review-before`, and `review-due`.
+1. `archguard init -d sample-data`
+2. Add an `active` guardrail with no `references`
+3. Run `archguard validate -d sample-data`
 
-2. **High: `import` claims upsert-by-ID, but the implementation ignores IDs and generates new ones**
+Actual:
 
-   Files:
-   `src/archguard/cli/maintenance.py:209-211`
-   `src/archguard/cli/maintenance.py:224`
-   `src/archguard/cli/maintenance.py:241`
-   `src/archguard/cli/maintenance.py:281-330`
+- `validate` returned no warnings and no errors.
 
-   Why this matters:
-   The command description says import matches on "ID or title", but records are validated through `GuardrailCreate`, which has no `id` field, and existing rows are indexed only by title. Any supplied ID is silently discarded and new guardrails get fresh ULIDs. That breaks identity preservation for re-imports, cross-file references, supersession chains, and exported/imported round-trips.
+Expected:
 
-   Repro:
-   ```powershell
-   Set-Content -Path $import -Value '[{"id":"01ARZ3NDEKTSV4RRFFQ69G5FAV","title":"Imported","severity":"must","rationale":"r","guidance":"g","scope":["it-platform"],"applies_to":["service"],"owner":"o"}]' -Encoding UTF8
-   uv run archguard --data-dir $dir import $import | Out-Null
-   Get-Content (Join-Path $dir 'guardrails.jsonl')
-   ```
-   The stored record gets a new ULID instead of `01ARZ3NDEKTSV4RRFFQ69G5FAV`.
+- At minimum, `validate` should warn.
+- Better: `add` should reject `status=active` without references, or require an explicit override.
 
-   Recommended fix:
-   Introduce a dedicated import model that optionally accepts `id`, `created_at`, and `updated_at`, then upsert by ID first and title second.
+Impact:
 
-3. **Medium: several mutating commands leave `.guardrails.db` stale even though the PRD says every write rebuilds the index**
+- The CLI documents a governance rule but does not enforce or even surface drift against it.
 
-   Files:
-   `PRD.md:206-215`
-   `src/archguard/cli/write.py:143-233`
-   `src/archguard/cli/write.py:236-298`
-   `src/archguard/cli/write.py:301-356`
-   `src/archguard/cli/write.py:433-484`
-   `src/archguard/cli/write.py:487-560`
-   `src/archguard/cli/maintenance.py:200-337`
+### 2. `--format` is advertised as a global option but silently ignored by some commands
 
-   Why this matters:
-   `update`, `ref-add`, `link`, `deprecate`, `supersede`, and `import` mutate JSONL but never rebuild the derived SQLite index before returning. Lazy rebuild on the next read masks this during normal CLI usage, but it still violates the documented write contract and leaves the repository in an internally inconsistent state after a successful write command.
+These commands still returned JSON:
 
-   Repro:
-   ```powershell
-   $before=(Get-Item (Join-Path $dir '.guardrails.db')).LastWriteTimeUtc
-   '{"guidance":"updated"}' | uv run archguard --data-dir $dir update $id | Out-Null
-   $after=(Get-Item (Join-Path $dir '.guardrails.db')).LastWriteTimeUtc
-   ```
-   `LastWriteTimeUtc` is unchanged after `update`.
+- `archguard --format table init -d sample-data-5`
+- `archguard --format markdown validate -d sample-data`
+- `archguard --format markdown guide`
 
-   Recommended fix:
-   Rebuild the index after every successful mutation, or explicitly change the contract and docs if write commands are intentionally JSONL-only.
+Meanwhile these commands did honor the format:
 
-4. **Medium: `check` silently discards all but the first `scope` and `applies_to` filter**
+- `archguard --format table list -d sample-data`
+- `archguard --format markdown search "managed database" -d sample-data`
+- `archguard --format table stats -d sample-data`
 
-   Files:
-   `src/archguard/core/models.py:130-133`
-   `src/archguard/cli/read.py:326-337`
+Expected:
 
-   Why this matters:
-   The input schema advertises arrays, but the implementation only uses `context["scope"][0]` and `context["applies_to"][0]`. That creates false negatives whenever the matching scope or applies-to tag is not first in the input.
+- Either every command should honor the global `--format`, or unsupported commands should fail clearly with a structured format error.
 
-   Repro:
-   ```powershell
-   '{"decision":"kafka","scope":["channels","it-platform"]}' | uv run archguard --data-dir $dir check
-   ```
-   With a matching `it-platform` guardrail present, this returns no matches because only `channels` is used.
+Impact:
 
-   Recommended fix:
-   Validate stdin with `CheckContext`, then make the array semantics explicit and implement them consistently in `hybrid_search` filtering.
+- Silent fallback to JSON makes automation brittle and makes the CLI contract harder to trust.
 
-5. **Medium: the CLI has drifted from the documented architecture invariants**
+### 3. Default duplicate detection missed an obvious near-duplicate
 
-   Files:
-   `AGENTS.md:30`
-   `AGENTS.md:36`
-   `PRD.md:87`
-   `PRD.md:783`
-   `src/archguard/core/models.py:57`
-   `src/archguard/cli/write.py:359-430`
-   `src/archguard/cli/guide.py:314-332`
+I added these two records:
 
-   Why this matters:
-   The project instructions say "No delete command (deprecate/supersede only)", but the CLI implements and documents a destructive `delete` command. The data model and CLI also accept a `requires` link type that is not in the PRD's link vocabulary. This is more than doc drift: it changes lifecycle and relationship semantics in a way future contributors will treat as supported because the guide exposes it.
+- `Use managed databases for production workloads`
+- `Prefer managed relational databases in production`
 
-   Recommended fix:
-   Either remove `delete` and `requires`, or update the authoritative docs after an explicit design decision. Right now the code, guide, and PRD are not describing the same product.
+Results:
 
-6. **Medium: `--schema` support is inconsistent, and `init --schema` still mutates state**
+- `archguard deduplicate -d sample-data` returned no pairs at the default threshold `0.85`
+- `archguard deduplicate -d sample-data --threshold 0.7` returned the pair with similarity `0.835`
 
-   Files:
-   `AGENTS.md:30`
-   `src/archguard/cli/setup.py:16-25`
-   `src/archguard/cli/setup.py:35-76`
-   `src/archguard/cli/read.py:15-355`
-   `src/archguard/cli/guide.py:154-240`
-   `src/archguard/cli/guide.py:355-420`
+Expected:
 
-   Why this matters:
-   The instructions say all read commands support `--schema`, but only `check` does. `search --schema` fails at argument parsing. Separately, `init` advertises a `--schema` option but ignores it and proceeds with filesystem writes.
+- The default threshold should catch a pair this close, especially because the bootstrap guidance explicitly tells agents to run `deduplicate` before creating records.
 
-   Repro:
-   ```powershell
-   uv run archguard search --schema foo
-   uv run archguard --data-dir $dir init --schema
-   ```
-   The first errors with "No such option: --schema"; the second initializes the directory instead of printing a schema.
+Impact:
 
-   Recommended fix:
-   Decide whether `--schema` is part of the supported contract. If yes, implement it consistently and ensure it exits without side effects. If not, remove it from docs and signatures.
+- The documented workflow under-detects overlap unless the caller already knows to lower the threshold.
 
-## Testing Gaps
+### 4. Validation failures leak raw framework internals instead of CLI-grade messages
 
-- The automated suite is clean: `uv run pytest`, `uv run ruff check src tests`, and `uv run pyright src` all passed.
-- The current tests miss the cases above: invalid date rejection, ID-preserving import, multi-value `check` filters, post-write index freshness, and `--schema` coverage for commands beyond `add`/`check`.
-- Some tests appear to codify current drift rather than the PRD, for example the guide currently expects `delete` to be a supported command.
+Repro:
 
-## Summary
+- Submit `archguard add` input missing `guidance`
 
-The codebase is in decent mechanical shape: the structure is clear, the test suite is large, and lint/type-checking are clean. The main risks are contract mismatches and latent runtime bugs in paths the current tests do not exercise, especially around date validation, identity preservation during import, and write-side index freshness.
+Actual:
+
+- The message includes raw Pydantic internals and a docs URL:
+  `Validation failed: 1 validation error for GuardrailCreate ... For further information visit https://errors.pydantic.dev/...`
+
+Expected:
+
+- Something like: `Missing required field: guidance`
+
+Impact:
+
+- The CLI feels less polished than the rest of the API surface, and the error text is noisier than it needs to be for users or agents.
+
+### 5. First write had noticeable cold-start latency
+
+Observed behavior on this machine:
+
+- First `archguard add` took more than 14 seconds and completed after my initial client timeout.
+- Subsequent `add` operations were around 1.1 to 1.2 seconds.
+- Read commands such as `search`, `check`, and `deduplicate` were typically around 2.3 to 3.0 seconds on a 3-record corpus.
+
+Expected:
+
+- If there is index or embedding warm-up, surface that clearly on stderr so the first write does not look hung.
+
+Impact:
+
+- The first-run experience is easy to misread as a stuck command.
+
+## Smaller UX Notes
+
+- `search "managed database"` returned `Encrypt customer data at rest` as a `vector`-only `medium` match. On a tiny corpus this felt like a false positive and suggests the semantic search weighting may be a bit loose.
+- `-h` is not accepted; only `--help` works. That is not wrong, but it is unexpected relative to most CLIs.
+
+## Overall
+
+The core shape is good. `guide` in particular is unusually strong and makes the CLI much easier to automate than most tools in this category. The biggest issues are consistency and policy enforcement: the product tells users to rely on certain invariants, but today some of those invariants are advisory only, and some global options are only partially implemented.

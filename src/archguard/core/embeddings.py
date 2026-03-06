@@ -56,6 +56,7 @@ MODEL_SUBDIR = Path("models") / "potion-base-8M"
 
 # Bundled model ships inside the package itself
 _BUNDLED_MODEL_DIR = Path(__file__).resolve().parent.parent / "models" / "potion-base-8M"
+_MODEL_CACHE: dict[Path, Any] = {}
 
 
 def bundled_model_dir() -> Path:
@@ -71,7 +72,10 @@ def try_load_model(data_dir: Path) -> Any:
     """
     for candidate in [data_dir / MODEL_SUBDIR, _BUNDLED_MODEL_DIR]:
         try:
-            return load_model(candidate)
+            resolved = candidate.resolve()
+            if resolved not in _MODEL_CACHE:
+                _MODEL_CACHE[resolved] = load_model(resolved)
+            return _MODEL_CACHE[resolved]
         except Exception:
             continue
     return None

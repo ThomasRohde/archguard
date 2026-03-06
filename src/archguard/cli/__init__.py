@@ -1,9 +1,10 @@
-"""Typer CLI application definition with global options and LLM mode support."""
+"""Typer CLI application definition with global options and shared helpers."""
 
 from __future__ import annotations
 
 import sys
-from typing import Annotated, Any, NoReturn
+from pathlib import Path
+from typing import Annotated, Any, NoReturn, cast
 
 import click
 import typer
@@ -98,6 +99,7 @@ class _FlexibleGroup(TyperGroup):
 app = typer.Typer(
     name="archguard",
     cls=_FlexibleGroup,
+    context_settings={"help_option_names": ["-h", "--help"]},
     help=(
         "Architecture guardrails management CLI.\n\n"
         "Guardrails are the constraints, standards, and rules that govern how systems "
@@ -135,6 +137,97 @@ class GlobalState:
 state = GlobalState()
 
 
+def emit_progress(message: str) -> None:
+    """Write a diagnostic message to stderr unless quiet mode is active."""
+    if state.quiet:
+        return
+    sys.stderr.write(message.rstrip() + "\n")
+    sys.stderr.flush()
+
+
+def emit_index_build_notice(command: str, data_dir: Path, *, explicit: bool = False) -> None:
+    """Explain slow first-run index warm-up on interactive terminals."""
+    if state.quiet:
+        return
+
+    db_exists = (data_dir / ".guardrails.db").exists()
+    if explicit:
+        emit_progress(
+            f"{command}: rebuilding the SQLite index and computing embeddings."
+            " First run may take several seconds."
+        )
+        return
+
+    if not db_exists:
+        emit_progress(
+            f"{command}: building the search index for first use."
+            " Embedding model warm-up may take several seconds."
+        )
+
+
+def ensure_supported_format(command: str, *supported_formats: str) -> None:
+    """Fail clearly when a command does not support the requested global format."""
+    supported = tuple(dict.fromkeys(supported_formats))
+    if state.format in supported:
+        return
+    handle_error(
+        command,
+        "ERR_VALIDATION_FORMAT",
+        (
+            f"Output format '{state.format}' is not supported for '{command}'."
+            f" Supported formats: {', '.join(supported)}"
+        ),
+        details={"requested": state.format, "supported": list(supported)},
+    )
+
+
+def summarize_validation_error(error: Any) -> tuple[str, dict[str, Any]]:
+    """Convert a Pydantic ValidationError into concise CLI-grade messages."""
+    try:
+        raw_issues = error.errors(include_url=False)
+    except Exception:
+        return ("Validation failed", {"issues": []})
+
+    issues: list[dict[str, str]] = []
+    for raw_issue in raw_issues:
+        issue = cast(dict[str, Any], raw_issue)
+        loc = ".".join(str(part) for part in cast(tuple[Any, ...], issue.get("loc", ()))) or "input"
+        issue_type = str(issue.get("type", "validation_error"))
+        ctx = cast(dict[str, Any], issue.get("ctx") or {})
+
+        if issue_type == "missing":
+            message = f"Missing required field: {loc}"
+        elif issue_type in {"string_too_short", "too_short"}:
+            message = f"Field '{loc}' must not be empty"
+        elif issue_type == "literal_error":
+            expected = ctx.get("expected")
+            if expected:
+                message = f"Field '{loc}' must be one of: {expected}"
+            else:
+                message = f"Field '{loc}' has an unsupported value"
+        elif issue_type == "list_type":
+            message = f"Field '{loc}' must be an array"
+        elif issue_type == "dict_type":
+            message = f"Field '{loc}' must be an object"
+        elif issue_type == "string_type":
+            message = f"Field '{loc}' must be a string"
+        else:
+            message = f"Invalid field '{loc}': {issue.get('msg', 'validation failed')}"
+
+        issues.append({"field": loc, "type": issue_type, "message": message})
+
+    if not issues:
+        return ("Validation failed", {"issues": []})
+
+    summary = issues[0]["message"]
+    if len(issues) > 1:
+        remaining = len(issues) - 1
+        suffix = "issue" if remaining == 1 else "issues"
+        summary = f"{summary} (+{remaining} more {suffix})"
+
+    return (summary, {"issues": issues})
+
+
 def _version_callback(value: bool) -> None:
     if value:
         from archguard import __version__
@@ -170,6 +263,14 @@ def main(
     """Architecture guardrails management CLI."""
     # Per-invocation request context (request_id, timing)
     init_request()
+
+    if format not in {"json", "table", "markdown"}:
+        handle_error(
+            "archguard",
+            "ERR_VALIDATION_FORMAT",
+            f"Unknown global format: {format}",
+            details={"requested": format, "supported": ["json", "table", "markdown"]},
+        )
 
     state.data_dir = data_dir
 

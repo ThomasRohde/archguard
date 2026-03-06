@@ -7,7 +7,7 @@ from typing import Annotated, Any
 
 import typer
 
-from archguard.cli import app, handle_error, state
+from archguard.cli import app, ensure_supported_format, handle_error, state
 from archguard.output.json import (
     ERROR_EXIT_MAP,
     SCHEMA_VERSION,
@@ -51,7 +51,9 @@ def _build_guide(data_dir: str = "guardrails") -> dict[str, Any]:
                 "default": "json",
                 "description": (
                     "Output format. json wraps in structured envelope; "
-                    "table/markdown are human-readable."
+                    "table/markdown are human-readable where implemented. "
+                    "Commands without human-readable renderers return "
+                    "ERR_VALIDATION_FORMAT instead of silently falling back to JSON."
                 ),
             },
             "--quiet, -q": {
@@ -1000,6 +1002,8 @@ def guide(
             "  --task link-guardrails  Relationship types and command schema\n"
         )
         raise SystemExit(0)
+
+    ensure_supported_format("guide", "json")
 
     data_dir = state.data_dir
 

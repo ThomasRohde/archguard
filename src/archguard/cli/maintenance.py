@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import re
 import sys
 from typing import Annotated, Any, cast
 
 import typer
 
-from archguard.cli import app, handle_error
+from archguard.cli import (
+    app,
+    emit_index_build_notice,
+    ensure_supported_format,
+    handle_error,
+    summarize_validation_error,
+)
 from archguard.core.models import Guardrail
 from archguard.output.json import envelope
 
@@ -125,7 +132,7 @@ def review_due(
 def deduplicate(
     threshold: Annotated[
         float, typer.Option("--threshold", help="Similarity threshold (0-1)")
-    ] = 0.85,
+    ] = 0.8,
     explain: Annotated[
         bool, typer.Option("--explain", help="Explain what this command does")
     ] = False,
@@ -137,6 +144,8 @@ def deduplicate(
             "vector embeddings, and reports pairs above the threshold for human review.\n"
         )
         raise SystemExit(0)
+
+    ensure_supported_format("deduplicate", "json")
 
     from pathlib import Path
 
@@ -155,37 +164,64 @@ def deduplicate(
     pairs: list[dict[str, str | float]] = []
 
     def _make_pair(
-        ga: Guardrail, gb: Guardrail, sim: float, method: str
+        ga: Guardrail,
+        gb: Guardrail,
+        sim: float,
+        method: str,
+        *,
+        lexical_similarity: float | None = None,
+        embedding_similarity: float | None = None,
     ) -> dict[str, str | float]:
-        return {
+        pair: dict[str, str | float] = {
             "id_a": ga.id, "title_a": ga.title,
             "id_b": gb.id, "title_b": gb.title,
             "similarity": round(sim, 3), "method": method,
         }
+        if lexical_similarity is not None:
+            pair["lexical_similarity"] = round(lexical_similarity, 3)
+        if embedding_similarity is not None:
+            pair["embedding_similarity"] = round(embedding_similarity, 3)
+        return pair
+
+    def _token_set(guardrail: Guardrail) -> set[str]:
+        text = f"{guardrail.title} {guardrail.guidance} {guardrail.rationale}".lower()
+        return set(re.findall(r"[a-z0-9]+", text))
+
+    def _jaccard_similarity(left: set[str], right: set[str]) -> float:
+        union = len(left | right)
+        if union == 0:
+            return 0.0
+        return len(left & right) / union
 
     # Try embedding-based similarity
     from archguard.core.embeddings import try_load_model
     model = try_load_model(data_dir)
+    token_sets = [_token_set(g) for g in guardrails]
 
     if model is not None:
         from archguard.core.embeddings import cosine_similarity, embed_guardrail
         embeddings = [embed_guardrail(model, g) for g in guardrails]
         for i in range(len(guardrails)):
             for j in range(i + 1, len(guardrails)):
-                sim = cosine_similarity(embeddings[i], embeddings[j])
+                lexical_similarity = _jaccard_similarity(token_sets[i], token_sets[j])
+                embedding_similarity = cosine_similarity(embeddings[i], embeddings[j])
+                sim = max(embedding_similarity, lexical_similarity)
                 if sim >= threshold:
-                    pairs.append(_make_pair(guardrails[i], guardrails[j], sim, "embedding"))
+                    pairs.append(
+                        _make_pair(
+                            guardrails[i],
+                            guardrails[j],
+                            sim,
+                            "hybrid",
+                            lexical_similarity=lexical_similarity,
+                            embedding_similarity=embedding_similarity,
+                        )
+                    )
     else:
-        # Fallback: Jaccard similarity on word sets
-        word_sets = [
-            set((g.title + " " + g.guidance).lower().split())
-            for g in guardrails
-        ]
+        # Fallback: Jaccard similarity on normalized word sets.
         for i in range(len(guardrails)):
             for j in range(i + 1, len(guardrails)):
-                intersection = len(word_sets[i] & word_sets[j])
-                union = len(word_sets[i] | word_sets[j])
-                sim = intersection / union if union > 0 else 0.0
+                sim = _jaccard_similarity(token_sets[i], token_sets[j])
                 if sim >= threshold:
                     pairs.append(_make_pair(guardrails[i], guardrails[j], sim, "jaccard"))
 
@@ -212,12 +248,15 @@ def import_guardrails(
         )
         raise SystemExit(0)
 
+    ensure_supported_format("import", "json")
+
     import csv as csv_mod
     from datetime import UTC, datetime
     from io import StringIO
     from pathlib import Path
 
     import orjson
+    from pydantic import ValidationError
     from ulid import ULID
 
     from archguard.cli import state
@@ -282,8 +321,9 @@ def import_guardrails(
     for i, raw in enumerate(raw_records):
         try:
             imp = GuardrailImport.model_validate(raw)
-        except Exception as exc:
-            errors.append(f"Record {i}: {exc}")
+        except ValidationError as exc:
+            summary, _details = summarize_validation_error(exc)
+            errors.append(f"Record {i}: {summary}")
             continue
 
         if taxonomy:
@@ -343,6 +383,7 @@ def import_guardrails(
     # Rebuild index
     from archguard.core.index import ensure_index
 
+    emit_index_build_notice("import", data_dir)
     ensure_index(data_dir)
 
     sys.stdout.write(
