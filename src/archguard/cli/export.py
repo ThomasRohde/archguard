@@ -28,7 +28,7 @@ def export(
 ) -> None:
     """Export guardrails in JSON, CSV, or Markdown format."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "export produces filtered guardrails in the requested format. "
             "json for machine consumption, csv for spreadsheets, "
             "markdown for Confluence publishing.\n"
@@ -56,8 +56,9 @@ def export(
     elif format == "csv":
         buf = io.StringIO()
         columns = [
-            "id", "title", "status", "severity", "scope", "applies_to",
-            "owner", "review_date", "created_at", "updated_at",
+            "id", "title", "status", "severity", "rationale", "guidance",
+            "exceptions", "consequences", "scope", "applies_to",
+            "lifecycle_stage", "owner", "review_date", "created_at", "updated_at",
         ]
         writer = csv.DictWriter(buf, fieldnames=columns)
         writer.writeheader()
@@ -67,8 +68,13 @@ def export(
                 "title": g.title,
                 "status": g.status,
                 "severity": g.severity,
+                "rationale": g.rationale,
+                "guidance": g.guidance,
+                "exceptions": g.exceptions,
+                "consequences": g.consequences,
                 "scope": ";".join(g.scope),
                 "applies_to": ";".join(g.applies_to),
+                "lifecycle_stage": ";".join(g.lifecycle_stage),
                 "owner": g.owner,
                 "review_date": g.review_date or "",
                 "created_at": g.created_at,

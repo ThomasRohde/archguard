@@ -75,12 +75,25 @@ def vector_search(
     return [(doc_id, i + 1) for i, (doc_id, _) in enumerate(scored[:limit])]
 
 
+DEFAULT_MIN_SCORE = 0.005
+
+
+def _relevance_label(score: float) -> str:
+    """Classify an RRF score into high/medium/low relevance."""
+    if score >= 0.02:
+        return "high"
+    if score >= 0.01:
+        return "medium"
+    return "low"
+
+
 def hybrid_search(
     db_path: Path,
     query: str,
     model: Any = None,
     filters: dict[str, str | None] | None = None,
     top: int = 10,
+    min_score: float = DEFAULT_MIN_SCORE,
 ) -> tuple[list[SearchResult], int]:
     """Run hybrid BM25+vector search with RRF fusion and filters."""
     from archguard.core.index import get_connection
@@ -150,6 +163,10 @@ def hybrid_search(
                 if owner_filter and row[8] != owner_filter:
                     continue
 
+            score = round(rd.rrf, 6)
+            if score < min_score:
+                continue
+
             snippet: str = row[4][:150] if row[4] else ""
             sources = match_sources_map.get(rd.doc_id, [])
             results.append(
@@ -158,7 +175,8 @@ def hybrid_search(
                     title=row[1],
                     severity=row[2],
                     status=row[3],
-                    score=round(rd.rrf, 6),
+                    score=score,
+                    relevance=_relevance_label(score),  # type: ignore[arg-type]
                     match_sources=sources,  # type: ignore[arg-type]
                     snippet=snippet,
                 )

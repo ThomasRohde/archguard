@@ -30,6 +30,7 @@ def _make_search_result(**overrides) -> SearchResult:
         "severity": "should",
         "status": "active",
         "score": 0.85,
+        "relevance": "high",
         "match_sources": ["bm25"],
         "snippet": "some snippet",
     }

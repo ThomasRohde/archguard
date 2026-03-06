@@ -26,13 +26,16 @@ def search(
     ] = None,
     owner: Annotated[str | None, typer.Option("--owner", help="Filter by owner")] = None,
     top: Annotated[int, typer.Option("--top", help="Max results to return")] = 10,
+    min_score: Annotated[
+        float, typer.Option("--min-score", help="Minimum RRF score threshold (default 0.005)")
+    ] = 0.005,
     explain: Annotated[
         bool, typer.Option("--explain", help="Explain what this command does")
     ] = False,
 ) -> None:
     """Hybrid BM25 + vector search across guardrails, ranked by RRF."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "search performs hybrid retrieval: BM25 keyword search via FTS5 and cosine similarity "
             "via Model2Vec embeddings. Results are merged using Reciprocal Rank Fusion (RRF). "
             "Returns compact summaries for triage.\n"
@@ -53,7 +56,7 @@ def search(
 
     filters = _build_filters(status, severity, scope, applies_to, lifecycle_stage, owner)
 
-    results, total = hybrid_search(db_path, query, model=model, filters=filters, top=top)
+    results, total = hybrid_search(db_path, query, model=model, filters=filters, top=top, min_score=min_score)
 
     result_payload = {
         "results": [r.model_dump() for r in results],
@@ -81,7 +84,7 @@ def get(
 ) -> None:
     """Get full detail for a guardrail including references and links."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "get returns the complete guardrail record with all references and linked guardrails.\n"
         )
         raise SystemExit(0)
@@ -131,7 +134,7 @@ def related(
 ) -> None:
     """Show linked guardrails with relationship types."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "related returns all guardrails connected to the given guardrail via links, "
             "including the relationship type and direction.\n"
         )
@@ -210,7 +213,7 @@ def list_guardrails(
 ) -> None:
     """List guardrails with optional filters (no full-text search)."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "list returns guardrails matching the given filters "
             "without performing full-text search. "
             "Use 'search' for text-based retrieval.\n"
@@ -272,7 +275,7 @@ def check(
 ) -> None:
     """Check a proposed decision against the guardrail corpus. Reads context JSON from stdin."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "check reads a context JSON from stdin describing a proposed "
             "architectural decision, performs deterministic matching "
             "(FTS on text + filter intersection on structured fields), "

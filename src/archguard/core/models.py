@@ -23,7 +23,7 @@ class Guardrail(BaseModel):
     exceptions: str = Field(default="")
     consequences: str = Field(default="")
     scope: list[str] = Field(min_length=1, description="Validated against taxonomy.json at runtime")
-    applies_to: list[str] = Field(min_length=1)
+    applies_to: list[str] = Field(min_length=1, description="Free-form tags (not validated against taxonomy)")
     lifecycle_stage: list[str] = Field(default=["acquire", "build", "operate", "retire"])
     owner: str = Field(min_length=1)
     review_date: str | None = Field(default=None, description="ISO 8601 date")
@@ -146,6 +146,7 @@ class SearchResult(BaseModel):
     severity: Literal["must", "should", "may"]
     status: str
     score: float
+    relevance: Literal["high", "medium", "low"]
     match_sources: list[Literal["bm25", "vector"]]
     snippet: str
 

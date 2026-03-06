@@ -21,7 +21,7 @@ def add(
 ) -> None:
     """Add a new guardrail from JSON on stdin. Optionally includes inline references."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "add reads a guardrail JSON object from stdin, validates it, generates a ULID, "
             "appends it to guardrails.jsonl, rebuilds the index, and returns the created record.\n"
         )
@@ -139,7 +139,7 @@ def update(
 ) -> None:
     """Partially update a guardrail with patch semantics. Reads patch JSON from stdin."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "update reads a partial JSON patch from stdin, merges it with the existing guardrail, "
             "rewrites the JSONL line, and rebuilds the index. Only provided fields are changed.\n"
         )
@@ -224,7 +224,7 @@ def ref_add(
 ) -> None:
     """Add a reference/citation to an existing guardrail. Reads reference JSON from stdin."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "ref-add reads a reference JSON from stdin, validates it, appends to references.jsonl, "
             "and rebuilds the index.\n"
         )
@@ -293,7 +293,7 @@ def link(
 ) -> None:
     """Create a typed relationship between two guardrails."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "link creates a directional relationship between two guardrails "
             "and appends it to links.jsonl.\n"
         )
@@ -343,17 +343,19 @@ def delete(
 ) -> None:
     """Permanently delete a guardrail and its associated references and links."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "delete removes a guardrail from guardrails.jsonl and cleans up "
-            "associated references and links. Requires --confirm flag. "
-            "Rebuilds the index afterward.\n"
+            "associated references and links. Requires --confirm flag "
+            "(auto-confirmed when LLM=true). Rebuilds the index afterward.\n"
         )
         raise SystemExit(0)
 
-    if not confirm:
+    from archguard.output.json import is_llm_mode
+
+    if not confirm and not is_llm_mode():
         handle_error(
             "delete", "ERR_VALIDATION",
-            "Deletion requires --confirm flag",
+            "Deletion requires --confirm flag (auto-confirmed when LLM=true)",
         )
 
     from archguard.core.index import ensure_index
@@ -415,7 +417,7 @@ def deprecate(
 ) -> None:
     """Mark a guardrail as deprecated."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "deprecate sets the guardrail's status to 'deprecated' "
             "and records the reason in metadata.\n"
         )
@@ -469,7 +471,7 @@ def supersede(
 ) -> None:
     """Mark a guardrail as superseded by another, creating a link."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "supersede sets superseded_by on the old guardrail, "
             "changes its status to 'superseded', and creates an "
             "'implements' link from the new guardrail to the old one.\n"

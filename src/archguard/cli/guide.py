@@ -52,6 +52,14 @@ def _build_guide() -> dict[str, Any]:
                 "default": False,
                 "description": "Suppress stderr progress messages.",
             },
+            "--explain": {
+                "type": "bool",
+                "default": False,
+                "description": (
+                    "Print a human-readable description of the command "
+                    "to stderr and exit. Does not pollute stdout."
+                ),
+            },
             "--data-dir, -d": {
                 "type": "string",
                 "default": "guardrails",
@@ -165,7 +173,8 @@ def _commands() -> dict[str, Any]:
             "args": ["QUERY"],
             "flags": [
                 "--status", "--severity", "--scope", "--applies-to",
-                "--lifecycle-stage", "--owner", "--top N", "--explain",
+                "--lifecycle-stage", "--owner", "--top N",
+                "--min-score FLOAT", "--explain",
             ],
             "stdin": None,
             "result_fields": [
@@ -310,7 +319,8 @@ def _commands() -> dict[str, Any]:
             "mutates": True,
             "description": (
                 "Permanently delete a guardrail and its "
-                "associated references and links."
+                "associated references and links. "
+                "Requires --confirm (auto-confirmed when LLM=true)."
             ),
             "args": ["GUARDRAIL_ID"],
             "flags": ["--confirm", "--explain"],
@@ -631,7 +641,7 @@ def guide(
     Call once, cache the result.
     """
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "guide returns a machine-readable JSON document describing "
             "every command, flag, error code, exit code, and usage "
             "example. An agent calls this once to bootstrap zero-shot "

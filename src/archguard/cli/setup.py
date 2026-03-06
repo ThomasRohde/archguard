@@ -25,7 +25,7 @@ def init(
 ) -> None:
     """Create guardrails data directory, JSONL files, taxonomy, and .gitignore."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "init creates the guardrails/ data directory with empty JSONL files, "
             "a taxonomy.json, and a .gitignore. The embedding model is bundled "
             "with the package — no download needed.\n"
@@ -85,7 +85,7 @@ def build(
 ) -> None:
     """Rebuild SQLite index from JSONL files."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "build reads all JSONL files, validates them, creates the SQLite FTS5 index, "
             "and computes embedding vectors for semantic search.\n"
         )
@@ -146,7 +146,7 @@ def validate(
 ) -> None:
     """Check JSONL integrity, broken links, and orphan references."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "validate checks that all JSONL files parse correctly, all references point to "
             "existing guardrails, all links connect existing guardrails, and all scope values "
             "match the taxonomy.\n"

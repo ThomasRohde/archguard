@@ -20,7 +20,7 @@ def stats(
 ) -> None:
     """Show counts by status, severity, scope, and staleness."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "stats returns aggregate counts of guardrails grouped by status, severity, scope, "
             "and review staleness.\n"
         )
@@ -70,15 +70,16 @@ def stats(
 
 @app.command(name="review-due")
 def review_due(
-    before: Annotated[str | None, typer.Option("--before", help="ISO 8601 date cutoff")] = None,
+    before: Annotated[str | None, typer.Option("--before", help="ISO 8601 date cutoff (default: 30 days from today)")] = None,
     explain: Annotated[
         bool, typer.Option("--explain", help="Explain what this command does")
     ] = False,
 ) -> None:
     """List guardrails past or approaching their review date."""
     if explain:
-        sys.stdout.write(
-            "review-due lists guardrails whose review_date is before the given date (or today).\n"
+        sys.stderr.write(
+            "review-due lists guardrails whose review_date is before the given date "
+            "(default: 30 days from today).\n"
         )
         raise SystemExit(0)
 
@@ -91,7 +92,8 @@ def review_due(
     data_dir = Path(state.data_dir)
     guardrails = load_guardrails(data_dir)
 
-    cutoff = before if before is not None else datetime.now(UTC).strftime("%Y-%m-%d")
+    from datetime import timedelta
+    cutoff = before if before is not None else (datetime.now(UTC) + timedelta(days=30)).strftime("%Y-%m-%d")
 
     # Filter guardrails with review_date <= cutoff
     due = [g for g in guardrails if g.review_date is not None and g.review_date <= cutoff]
@@ -125,7 +127,7 @@ def deduplicate(
 ) -> None:
     """Detect likely duplicate guardrails via hybrid FTS + vector similarity."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "deduplicate computes pairwise similarity between all guardrails using both FTS and "
             "vector embeddings, and reports pairs above the threshold for human review.\n"
         )
@@ -199,7 +201,7 @@ def import_guardrails(
 ) -> None:
     """Bulk upsert guardrails from a JSON or CSV file."""
     if explain:
-        sys.stdout.write(
+        sys.stderr.write(
             "import reads guardrails from a JSON array or CSV file, upserts them (matching on ID "
             "or title), validates each one, and rebuilds the index.\n"
         )
