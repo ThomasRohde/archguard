@@ -1,0 +1,14 @@
+{
+  "description": "Default scope taxonomy based on Enterprise Domain Model (EDM) 4.6.",
+  "scope": [
+    "business-control",
+    "business-support",
+    "channels",
+    "data-platform",
+    "it-platform",
+    "organisational-support",
+    "products-and-services",
+    "relationships",
+    "risk-management"
+  ]
+}

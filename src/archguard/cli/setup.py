@@ -41,17 +41,20 @@ def init(
         if not fpath.exists():
             fpath.touch()
 
-    # Create taxonomy
+    # Create taxonomy: explicit file > bundled EDM 4.6 default
     if taxonomy and taxonomy.exists():
         import shutil
 
         shutil.copy(taxonomy, data_dir / "taxonomy.json")
     elif not (data_dir / "taxonomy.json").exists():
-        import orjson
+        import shutil
 
-        (data_dir / "taxonomy.json").write_bytes(
-            orjson.dumps({"scope": []}, option=orjson.OPT_INDENT_2)
+        default_taxonomy = (
+            Path(__file__).resolve().parent.parent
+            / "defaults"
+            / "taxonomy.json"
         )
+        shutil.copy(default_taxonomy, data_dir / "taxonomy.json")
 
     # Create .gitignore for the data directory
     gitignore = data_dir / ".gitignore"
