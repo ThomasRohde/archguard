@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
@@ -15,7 +15,7 @@ from archguard.output.json import (
 )
 
 
-def _build_guide() -> dict:
+def _build_guide() -> dict[str, Any]:
     """Build the full guide payload — command catalog, error taxonomy, examples."""
     from archguard import __version__
 
@@ -116,7 +116,7 @@ def _build_guide() -> dict:
     }
 
 
-def _commands() -> dict:
+def _commands() -> dict[str, Any]:
     """Command catalog grouped by read/write/maintenance."""
     return {
         "init": {
@@ -405,7 +405,7 @@ def _commands() -> dict:
     }
 
 
-def _error_codes() -> dict:
+def _error_codes() -> dict[str, Any]:
     """Error code taxonomy with exit codes, retry hints, and descriptions."""
     return {
         "ERR_RESOURCE_NOT_FOUND": {
@@ -500,7 +500,7 @@ def _error_codes() -> dict:
     }
 
 
-def _examples() -> list[dict]:
+def _examples() -> list[dict[str, Any]]:
     """Concrete usage examples for common workflows."""
     add_example = (
         "echo '{\"title\":\"Prefer managed services\","
