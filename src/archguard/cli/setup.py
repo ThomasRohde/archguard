@@ -41,7 +41,7 @@ def init(
         if not fpath.exists():
             fpath.touch()
 
-    # Create taxonomy: explicit file > bundled EDM 4.6 default
+    # Create taxonomy: explicit file > bundled default
     if taxonomy and taxonomy.exists():
         import shutil
 

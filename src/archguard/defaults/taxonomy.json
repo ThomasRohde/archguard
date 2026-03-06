@@ -1,5 +1,5 @@
 {
-  "description": "Default scope taxonomy based on Enterprise Domain Model (EDM) 4.6.",
+  "description": "Default scope taxonomy covering common enterprise architecture domains.",
   "scope": [
     "business-control",
     "business-support",
