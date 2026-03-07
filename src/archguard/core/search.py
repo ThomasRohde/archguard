@@ -16,6 +16,8 @@ from archguard.core.models import SearchResult
 from archguard.core.search_terms import build_query_plan, count_matching_clauses
 
 RRF_K = 60
+HISTORICAL_STATUSES = frozenset({"deprecated", "superseded"})
+HISTORICAL_SCORE_PENALTY = 0.01
 
 
 def rrf_score(ranks: list[int], k: int = RRF_K) -> float:
@@ -100,6 +102,8 @@ def hybrid_search(
     filters: dict[str, str | list[str] | None] | None = None,
     top: int = 10,
     min_score: float = DEFAULT_MIN_SCORE,
+    *,
+    demote_historical: bool = False,
 ) -> tuple[list[SearchResult], int]:
     """Run hybrid BM25+vector search with RRF fusion and filters."""
     from archguard.core.index import get_connection
@@ -139,7 +143,7 @@ def hybrid_search(
         for rd in ranked:
             row = conn.execute(
                 "SELECT id, title, severity, status, guidance, scope, applies_to, "
-                "lifecycle_stage, owner FROM guardrails WHERE id = ?",
+                "lifecycle_stage, owner, superseded_by FROM guardrails WHERE id = ?",
                 (rd.doc_id,),
             ).fetchone()
             if row is None:
@@ -171,8 +175,12 @@ def hybrid_search(
             # Apply post-ranking filters
             if filters:
                 status_val = filters.get("status")
-                if isinstance(status_val, str) and row[3] != status_val:
-                    continue
+                if status_val:
+                    if isinstance(status_val, list):
+                        if row[3] not in status_val:
+                            continue
+                    elif row[3] != status_val:
+                        continue
                 severity_val = filters.get("severity")
                 if isinstance(severity_val, str) and row[2] != severity_val:
                     continue
@@ -206,7 +214,11 @@ def hybrid_search(
                 if total_clauses > 0 and rd.bm25_rank is not None
                 else 0.0
             )
-            score = round(rd.rrf + coverage_bonus, 6)
+            score = rd.rrf + coverage_bonus
+            historical = row[3] in HISTORICAL_STATUSES
+            if demote_historical and historical:
+                score = max(score - HISTORICAL_SCORE_PENALTY, 0.0)
+            score = round(score, 6)
             if score < min_score:
                 continue
 
@@ -218,6 +230,8 @@ def hybrid_search(
                     title=row[1],
                     severity=row[2],
                     status=row[3],
+                    historical=historical,
+                    superseded_by=row[9],
                     score=score,
                     relevance=_relevance_label(score),  # type: ignore[arg-type]
                     match_sources=sources,  # type: ignore[arg-type]
@@ -225,6 +239,7 @@ def hybrid_search(
                 )
             )
 
+        results.sort(key=lambda result: result.score, reverse=True)
         total = len(results)
         return results[:top], total
     finally:

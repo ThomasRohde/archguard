@@ -7,8 +7,16 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 
+def _blank_to_none(v: str | None) -> str | None:
+    """Normalize blank optional strings to None."""
+    if isinstance(v, str) and not v.strip():
+        return None
+    return v
+
+
 def _validate_iso_date(v: str | None) -> str | None:
     """Validate that a string is a valid ISO 8601 date (YYYY-MM-DD)."""
+    v = _blank_to_none(v)
     if v is None:
         return v
     from datetime import date
@@ -161,9 +169,15 @@ class GuardrailImport(BaseModel):
     lifecycle_stage: list[str] = Field(default=["acquire", "build", "operate", "retire"])
     owner: str = Field(..., min_length=1)
     review_date: str | None = None
+    superseded_by: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("id", "superseded_by", mode="before")
+    @classmethod
+    def _normalize_optional_strings(cls, v: str | None) -> str | None:
+        return _blank_to_none(v)
 
     @field_validator("review_date", mode="before")
     @classmethod
@@ -236,9 +250,10 @@ class SearchResult(BaseModel):
     title: str
     severity: Literal["must", "should", "may"]
     status: str
+    historical: bool = False
+    superseded_by: str | None = None
     score: float
     relevance: Literal["high", "medium", "low"]
     match_sources: list[Literal["bm25", "vector"]]
     snippet: str
-
 

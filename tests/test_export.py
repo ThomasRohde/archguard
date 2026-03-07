@@ -110,6 +110,30 @@ class TestExportJSON:
         data = orjson.loads(result.output)
         assert len(data["result"]["guardrails"]) == 1
 
+    def test_export_json_includes_references_and_links(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        first_id = _add_guardrail(dd)
+        second_id = _add_guardrail(dd, ADD_INPUT_2)
+        ref_result = runner.invoke(
+            app,
+            ["--data-dir", dd, "ref-add", first_id],
+            input=json.dumps(
+                {"ref_type": "policy", "ref_id": "POL-1", "ref_title": "Secrets Policy"}
+            ),
+        )
+        assert ref_result.exit_code == 0
+        link_result = runner.invoke(
+            app, ["--data-dir", dd, "link", first_id, second_id, "--rel", "supports"]
+        )
+        assert link_result.exit_code == 0
+
+        result = runner.invoke(app, ["--data-dir", dd, "export", "--format", "json"])
+        assert result.exit_code == 0
+        data = orjson.loads(result.output)
+        assert data["result"]["fidelity"] == "full"
+        assert len(data["result"]["references"]) == 1
+        assert len(data["result"]["links"]) == 1
+
 
 class TestExportCSV:
     def test_export_csv_header(self, tmp_path) -> None:

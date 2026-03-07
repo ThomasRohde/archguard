@@ -228,9 +228,9 @@ def _field_semantics() -> dict[str, Any]:
             ),
         },
         "scope": (
-            "Architectural domain from taxonomy.json. "
-            "Call 'archguard init --schema' or inspect taxonomy.json "
-            "for allowed values."
+            "Architectural domain from taxonomy.json. If taxonomy.json is empty, "
+            "scope is free-form. Use 'archguard init --taxonomy <file>' to bootstrap "
+            "a controlled vocabulary, or inspect taxonomy.json for allowed values."
         ),
         "applies_to": (
             "Free-form tags describing what the guardrail applies to "
@@ -418,8 +418,9 @@ def _commands() -> dict[str, Any]:
             "mutates": True,
             "description": (
                 "Create guardrails data directory, JSONL files, "
-                "taxonomy, and .gitignore. Search index warm-up happens lazily "
-                "on first add/search/build."
+                "taxonomy, and .gitignore. Unless --taxonomy is provided, "
+                "taxonomy.json is created with an empty scope array (free-form mode). "
+                "Search index warm-up happens lazily on first add/search/build."
             ),
             "args": [],
             "flags": ["--taxonomy PATH", "--explain", "--schema"],
@@ -455,12 +456,13 @@ def _commands() -> dict[str, Any]:
             "mutates": False,
             "description": (
                 "Hybrid BM25 + vector search across guardrails, "
-                "ranked by RRF."
+                "ranked by RRF. Deprecated and superseded guardrails are "
+                "excluded by default."
             ),
             "args": ["QUERY"],
             "flags": [
                 "--status", "--severity", "--scope", "--applies-to",
-                "--lifecycle-stage", "--owner", "--top N",
+                "--lifecycle-stage", "--owner", "--include-historical", "--top N",
                 "--min-score FLOAT", "--explain",
             ],
             "stdin": None,
@@ -512,10 +514,11 @@ def _commands() -> dict[str, Any]:
             "mutates": False,
             "description": (
                 "Check a proposed decision against the guardrail "
-                "corpus. Reads context JSON from stdin."
+                "corpus. Reads context JSON from stdin. Deprecated and "
+                "superseded guardrails are excluded by default."
             ),
             "args": [],
-            "flags": ["--explain", "--schema"],
+            "flags": ["--status", "--include-historical", "--explain", "--schema"],
             "stdin": {
                 "format": "JSON",
                 "required_fields": ["decision"],
@@ -524,7 +527,7 @@ def _commands() -> dict[str, Any]:
                     "lifecycle_stage", "tags[]",
                 ],
             },
-            "result_fields": ["context", "matches[]", "summary"],
+            "result_fields": ["context", "matches[]", "summary", "filters_applied"],
         },
         "add": {
             "group": "write",
@@ -682,18 +685,23 @@ def _commands() -> dict[str, Any]:
             "group": "maintenance",
             "mutates": True,
             "description": (
-                "Bulk upsert guardrails from a JSON or CSV file."
+                "Bulk upsert guardrails from a JSON array, a full-fidelity JSON snapshot, "
+                "or a CSV file."
             ),
             "args": ["FILE"],
             "flags": ["--explain"],
             "stdin": None,
-            "result_fields": ["imported", "updated", "errors[]"],
+            "result_fields": [
+                "imported", "updated", "references_imported", "links_imported", "errors[]",
+            ],
         },
         "export": {
             "group": "maintenance",
             "mutates": False,
             "description": (
-                "Export guardrails in JSON, CSV, or Markdown format. "
+                "Export guardrails in JSON, CSV, or Markdown format. JSON is a "
+                "full-fidelity snapshot including references and links. "
+                "CSV and Markdown are publishing views. "
                 "When LLM=true, all formats return the standard JSON "
                 "envelope with result.content (string) and result.format."
             ),
@@ -703,7 +711,9 @@ def _commands() -> dict[str, Any]:
                 "--scope", "--explain",
             ],
             "stdin": None,
-            "result_fields": ["guardrails[]", "content", "format"],
+            "result_fields": [
+                "fidelity", "guardrails[]", "references[]", "links[]", "content", "format",
+            ],
         },
         "guide": {
             "group": "meta",

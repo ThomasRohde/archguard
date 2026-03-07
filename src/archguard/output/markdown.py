@@ -28,12 +28,16 @@ def _escape(text: str) -> str:
 
 def format_search_results_md(results: list[SearchResult], total: int, query: str) -> str:
     """Format search results as a Markdown table."""
-    headers = ["#", "Title", "Severity", "Score", "Sources"]
+    headers = ["#", "Title", "Status", "Severity", "Score", "Sources"]
     rows: list[list[str]] = []
     for rank, r in enumerate(results, 1):
+        title = r.title
+        if r.superseded_by:
+            title = f"{title} (superseded by {r.superseded_by[:8]})"
         rows.append([
             str(rank),
-            _escape(r.title),
+            _escape(title),
+            r.status,
             r.severity,
             f"{r.score:.2f}",
             ", ".join(r.match_sources),

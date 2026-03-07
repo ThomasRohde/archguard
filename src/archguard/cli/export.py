@@ -7,6 +7,7 @@ import io
 import sys
 from typing import Annotated
 
+import orjson
 import typer
 
 from archguard.cli import app, handle_error, require_data_dir
@@ -29,12 +30,13 @@ def export(
     if explain:
         sys.stderr.write(
             "export produces filtered guardrails in the requested format. "
-            "json for machine consumption, csv for spreadsheets, "
-            "markdown for Confluence publishing.\n"
+            "json is a full-fidelity snapshot including guardrails, references, and links "
+            "for backup or transfer. csv and markdown are publishing views focused on "
+            "guardrail records.\n"
         )
         raise SystemExit(0)
 
-    from archguard.core.store import load_guardrails
+    from archguard.core.store import load_guardrails, load_links, load_references
 
     data_dir = require_data_dir("export")
     guardrails = load_guardrails(data_dir)
@@ -49,15 +51,36 @@ def export(
 
     # Dispatch on format
     if format == "json":
+        guardrail_ids = {g.id for g in guardrails}
+        references = [
+            r.model_dump()
+            for r in load_references(data_dir)
+            if r.guardrail_id in guardrail_ids
+        ]
+        links = [
+            link.model_dump()
+            for link in load_links(data_dir)
+            if link.from_id in guardrail_ids and link.to_id in guardrail_ids
+        ]
         sys.stdout.write(
-            envelope("export", {"guardrails": [g.model_dump() for g in guardrails]}) + "\n"
+            envelope(
+                "export",
+                {
+                    "fidelity": "full",
+                    "guardrails": [g.model_dump() for g in guardrails],
+                    "references": references,
+                    "links": links,
+                },
+            )
+            + "\n"
         )
     elif format == "csv":
         buf = io.StringIO()
         columns = [
             "id", "title", "status", "severity", "rationale", "guidance",
             "exceptions", "consequences", "scope", "applies_to",
-            "lifecycle_stage", "owner", "review_date", "created_at", "updated_at",
+            "lifecycle_stage", "owner", "review_date", "superseded_by",
+            "created_at", "updated_at", "metadata",
         ]
         writer = csv.DictWriter(buf, fieldnames=columns)
         writer.writeheader()
@@ -76,8 +99,10 @@ def export(
                 "lifecycle_stage": ";".join(g.lifecycle_stage),
                 "owner": g.owner,
                 "review_date": g.review_date or "",
+                "superseded_by": g.superseded_by or "",
                 "created_at": g.created_at,
                 "updated_at": g.updated_at,
+                "metadata": "" if not g.metadata else orjson.dumps(g.metadata).decode(),
             })
         content = buf.getvalue()
         if is_llm_mode():
@@ -87,7 +112,6 @@ def export(
         else:
             sys.stdout.write(content)
     elif format == "markdown":
-        from archguard.core.store import load_references
         from archguard.output.markdown import format_export_md
         references = load_references(data_dir)
         content = format_export_md(guardrails, references)

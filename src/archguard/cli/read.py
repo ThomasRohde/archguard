@@ -19,6 +19,8 @@ from archguard.cli import (
 )
 from archguard.output.json import envelope
 
+DEFAULT_RETRIEVAL_STATUSES = ["draft", "active"]
+
 
 @app.command()
 def search(
@@ -33,6 +35,13 @@ def search(
         str | None, typer.Option("--lifecycle-stage", help="Filter by lifecycle stage")
     ] = None,
     owner: Annotated[str | None, typer.Option("--owner", help="Filter by owner")] = None,
+    include_historical: Annotated[
+        bool,
+        typer.Option(
+            "--include-historical",
+            help="Include deprecated and superseded guardrails in the ranked results",
+        ),
+    ] = False,
     top: Annotated[int, typer.Option("--top", help="Max results to return")] = 10,
     min_score: Annotated[
         float, typer.Option("--min-score", help="Minimum RRF score threshold (default 0.005)")
@@ -46,7 +55,8 @@ def search(
         sys.stderr.write(
             "search performs hybrid retrieval: BM25 keyword search via FTS5 and cosine similarity "
             "via Model2Vec embeddings. Results are merged using Reciprocal Rank Fusion (RRF). "
-            "Returns compact summaries for triage.\n"
+            "Returns compact summaries for triage. By default, deprecated and superseded "
+            "guardrails are excluded; pass --include-historical to include them.\n"
             "\n"
             "IMPORTANT FOR AGENTS: Always search before creating a guardrail to detect\n"
             "duplicates and overlaps. If search returns a relevant existing guardrail,\n"
@@ -69,10 +79,24 @@ def search(
     # Try to load model for vector search (graceful None if missing)
     model = _try_load_model(data_dir)
 
-    filters = _build_filters(status, severity, scope, applies_to, lifecycle_stage, owner)
+    filters = _build_filters(
+        status,
+        severity,
+        scope,
+        applies_to,
+        lifecycle_stage,
+        owner,
+        include_historical=include_historical,
+    )
 
     results, total = hybrid_search(
-        db_path, query, model=model, filters=filters, top=top, min_score=min_score,
+        db_path,
+        query,
+        model=model,
+        filters=filters,
+        top=top,
+        min_score=min_score,
+        demote_historical=include_historical and status is None,
     )
 
     result_payload = {
@@ -290,6 +314,14 @@ def list_guardrails(
 
 @app.command()
 def check(
+    status: Annotated[str | None, typer.Option("--status", help="Filter by status")] = None,
+    include_historical: Annotated[
+        bool,
+        typer.Option(
+            "--include-historical",
+            help="Include deprecated and superseded guardrails in the ranked matches",
+        ),
+    ] = False,
     explain: Annotated[
         bool, typer.Option("--explain", help="Explain what this command does")
     ] = False,
@@ -301,7 +333,9 @@ def check(
             "check reads a context JSON from stdin describing a proposed "
             "architectural decision, performs deterministic matching "
             "(FTS on text + filter intersection on structured fields), "
-            "and returns matching guardrails grouped by severity. "
+            "and returns matching guardrails grouped by severity. By default, "
+            "deprecated and superseded guardrails are excluded; pass "
+            "--include-historical to include them. "
             "The CLI does not judge compliance; it surfaces relevance.\n"
             "\n"
             "The agent is responsible for interpreting the results and advising\n"
@@ -362,12 +396,23 @@ def check(
         filters["applies_to"] = validated_context.applies_to
     if validated_context.lifecycle_stage:
         filters["lifecycle_stage"] = validated_context.lifecycle_stage
+    if status is not None:
+        filters["status"] = status
+    elif not include_historical:
+        filters["status"] = DEFAULT_RETRIEVAL_STATUSES
 
     emit_index_build_notice("check", data_dir)
     db_path = ensure_index(data_dir)
     model = _try_load_model(data_dir)
 
-    results, _total = hybrid_search(db_path, query, model=model, filters=filters or None, top=50)
+    results, _total = hybrid_search(
+        db_path,
+        query,
+        model=model,
+        filters=filters or None,
+        top=50,
+        demote_historical=include_historical and status is None,
+    )
 
     # Build summary: count by severity
     summary: dict[str, int] = {"must": 0, "should": 0, "may": 0}
@@ -380,6 +425,7 @@ def check(
         "context": context,
         "matches": [r.model_dump() for r in results],
         "summary": summary,
+        "filters_applied": filters,
     }
     sys.stdout.write(envelope("check", result_payload) + "\n")
 
@@ -398,10 +444,14 @@ def _build_filters(
     applies_to: str | None,
     lifecycle_stage: str | None,
     owner: str | None,
+    *,
+    include_historical: bool,
 ) -> dict[str, str | list[str] | None] | None:
     """Build a filters dict from CLI options, or None if no filters."""
     filters: dict[str, str | list[str] | None] = {
-        "status": status,
+        "status": status if status is not None else (
+            None if include_historical else DEFAULT_RETRIEVAL_STATUSES
+        ),
         "severity": severity,
         "scope": scope,
         "applies_to": applies_to,

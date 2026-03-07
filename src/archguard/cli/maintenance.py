@@ -274,8 +274,10 @@ def import_guardrails(
     """Bulk upsert guardrails from a JSON or CSV file."""
     if explain:
         sys.stderr.write(
-            "import reads guardrails from a JSON array or CSV file, upserts them (matching on ID "
-            "or title), validates each one, and rebuilds the index.\n"
+            "import reads guardrails from a JSON array, a full-fidelity JSON snapshot "
+            "(guardrails + references + links), or a CSV file. Guardrails are upserted by ID "
+            "or title; references and links are merged when provided. The index is rebuilt "
+            "after import.\n"
         )
         raise SystemExit(0)
 
@@ -290,8 +292,14 @@ def import_guardrails(
     from pydantic import ValidationError
     from ulid import ULID
 
-    from archguard.core.models import Guardrail, GuardrailImport
-    from archguard.core.store import load_guardrails, load_taxonomy, rewrite_jsonl
+    from archguard.core.models import Guardrail, GuardrailImport, Link, Reference
+    from archguard.core.store import (
+        load_guardrails,
+        load_links,
+        load_references,
+        load_taxonomy,
+        rewrite_jsonl,
+    )
 
     file_path = Path(file)
     if not file_path.exists():
@@ -311,24 +319,53 @@ def import_guardrails(
     by_title = {g.title: g for g in guardrails}
 
     raw_records: list[dict[str, Any]] = []
+    raw_references: list[dict[str, Any]] = []
+    raw_links: list[dict[str, Any]] = []
     errors: list[str] = []
 
     if ext == ".json":
         try:
             content = file_path.read_bytes()
-            parsed = orjson.loads(content)
-            if not isinstance(parsed, list):
+            parsed: Any = orjson.loads(content)
+            if isinstance(parsed, dict):
+                parsed_dict = cast(dict[str, Any], parsed)
+                result_payload = parsed_dict.get("result")
+                if isinstance(result_payload, dict) and "guardrails" in result_payload:
+                    parsed = cast(dict[str, Any], result_payload)
+            if isinstance(parsed, list):
+                raw_records = cast(list[dict[str, Any]], parsed)
+            elif isinstance(parsed, dict):
+                snapshot = cast(dict[str, Any], parsed)
+                guardrails_value = snapshot.get("guardrails")
+                references_value = snapshot.get("references", [])
+                links_value = snapshot.get("links", [])
+                if not isinstance(guardrails_value, list):
+                    handle_error(
+                        "import",
+                        "ERR_VALIDATION_FORMAT",
+                        "Snapshot JSON must contain a 'guardrails' array",
+                    )
+                if not isinstance(references_value, list) or not isinstance(links_value, list):
+                    handle_error(
+                        "import",
+                        "ERR_VALIDATION_FORMAT",
+                        "Snapshot JSON 'references' and 'links' fields must be arrays",
+                    )
+                raw_records = cast(list[dict[str, Any]], guardrails_value)
+                raw_references = cast(list[dict[str, Any]], references_value)
+                raw_links = cast(list[dict[str, Any]], links_value)
+            else:
                 handle_error(
-                    "import", "ERR_VALIDATION_FORMAT",
-                    "JSON file must contain an array of objects",
+                    "import",
+                    "ERR_VALIDATION_FORMAT",
+                    "JSON file must contain an array or snapshot object",
                 )
-            raw_records = cast(list[dict[str, Any]], parsed)
         except orjson.JSONDecodeError as exc:
             handle_error("import", "ERR_VALIDATION_JSON", str(exc))
     else:
         text = file_path.read_text(encoding="utf-8")
         reader = csv_mod.DictReader(StringIO(text))
-        for row in reader:
+        for row_index, row in enumerate(reader):
             record: dict[str, Any] = dict(row)
             if "scope" in record and isinstance(record["scope"], str):
                 record["scope"] = [s.strip() for s in record["scope"].split(";") if s.strip()]
@@ -342,11 +379,40 @@ def import_guardrails(
                     if val
                     else ["acquire", "build", "operate", "retire"]
                 )
+            for optional_field in (
+                "id",
+                "review_date",
+                "superseded_by",
+                "created_at",
+                "updated_at",
+            ):
+                if optional_field in record and isinstance(record[optional_field], str):
+                    value = record[optional_field].strip()
+                    record[optional_field] = value or None
+            if "metadata" in record and isinstance(record["metadata"], str):
+                metadata_text = record["metadata"].strip()
+                if not metadata_text:
+                    record["metadata"] = {}
+                else:
+                    try:
+                        metadata = orjson.loads(metadata_text)
+                    except orjson.JSONDecodeError as exc:
+                        errors.append(f"Record {row_index}: invalid metadata JSON: {exc}")
+                        continue
+                    if not isinstance(metadata, dict):
+                        errors.append(
+                            f"Record {row_index}: metadata must decode to a JSON object"
+                        )
+                        continue
+                    record["metadata"] = metadata
             raw_records.append(record)
 
     new_count = 0
     updated_count = 0
+    imported_reference_count = 0
+    imported_link_count = 0
     now = datetime.now(UTC).isoformat()
+    id_remap: dict[str, str] = {}
 
     for i, raw in enumerate(raw_records):
         try:
@@ -382,6 +448,8 @@ def import_guardrails(
                 if g.id == existing.id:
                     guardrails[idx_val] = updated_obj
                     break
+            if imp.id:
+                id_remap[imp.id] = existing.id
             updated_count += 1
         else:
             guardrail_id = imp.id or str(ULID())
@@ -399,6 +467,7 @@ def import_guardrails(
                 lifecycle_stage=imp.lifecycle_stage,
                 owner=imp.owner,
                 review_date=imp.review_date,
+                superseded_by=imp.superseded_by,
                 created_at=imp.created_at or now,
                 updated_at=imp.updated_at or now,
                 metadata=imp.metadata,
@@ -406,9 +475,92 @@ def import_guardrails(
             guardrails.append(full)
             by_id[full.id] = full
             by_title[full.title] = full
+            if imp.id:
+                id_remap[imp.id] = full.id
             new_count += 1
 
     rewrite_jsonl(data_dir / "guardrails.jsonl", guardrails)
+
+    if raw_references:
+        references = load_references(data_dir)
+        reference_map = {
+            (
+                ref.guardrail_id,
+                ref.ref_type,
+                ref.ref_id,
+                ref.ref_title,
+                ref.ref_url or "",
+                ref.excerpt,
+            ): ref
+            for ref in references
+        }
+        valid_guardrail_ids = {g.id for g in guardrails}
+        for i, raw_ref in enumerate(raw_references):
+            try:
+                ref = Reference.model_validate(raw_ref)
+            except ValidationError as exc:
+                summary, _details = summarize_validation_error(exc)
+                errors.append(f"Reference {i}: {summary}")
+                continue
+            target_guardrail_id = id_remap.get(ref.guardrail_id, ref.guardrail_id)
+            if target_guardrail_id not in valid_guardrail_ids:
+                errors.append(
+                    f"Reference {i}: guardrail_id '{ref.guardrail_id}' does not exist after import"
+                )
+                continue
+            normalized_ref = Reference.model_validate(
+                {**ref.model_dump(), "guardrail_id": target_guardrail_id}
+            )
+            key = (
+                normalized_ref.guardrail_id,
+                normalized_ref.ref_type,
+                normalized_ref.ref_id,
+                normalized_ref.ref_title,
+                normalized_ref.ref_url or "",
+                normalized_ref.excerpt,
+            )
+            is_new = key not in reference_map
+            reference_map[key] = normalized_ref
+            if is_new:
+                imported_reference_count += 1
+        rewrite_jsonl(data_dir / "references.jsonl", list(reference_map.values()))
+
+    if raw_links:
+        links = load_links(data_dir)
+        link_map = {
+            (link.from_id, link.to_id, link.rel_type, link.note): link
+            for link in links
+        }
+        valid_guardrail_ids = {g.id for g in guardrails}
+        for i, raw_link in enumerate(raw_links):
+            try:
+                link = Link.model_validate(raw_link)
+            except ValidationError as exc:
+                summary, _details = summarize_validation_error(exc)
+                errors.append(f"Link {i}: {summary}")
+                continue
+            from_id = id_remap.get(link.from_id, link.from_id)
+            to_id = id_remap.get(link.to_id, link.to_id)
+            if from_id not in valid_guardrail_ids or to_id not in valid_guardrail_ids:
+                errors.append(
+                    f"Link {i}: endpoints '{link.from_id}' -> '{link.to_id}' "
+                    "do not exist after import"
+                )
+                continue
+            normalized_link = Link.model_validate(
+                {**link.model_dump(), "from_id": from_id, "to_id": to_id}
+            )
+            key = (
+                normalized_link.from_id,
+                normalized_link.to_id,
+                normalized_link.rel_type,
+                normalized_link.note,
+            )
+            is_new = key not in link_map
+            link_map[key] = normalized_link
+            if is_new:
+                imported_link_count += 1
+        rewrite_jsonl(data_dir / "links.jsonl", list(link_map.values()))
 
     # Rebuild index
     from archguard.core.index import ensure_index
@@ -417,6 +569,15 @@ def import_guardrails(
     ensure_index(data_dir)
 
     sys.stdout.write(
-        envelope("import", {"imported": new_count, "updated": updated_count, "errors": errors})
+        envelope(
+            "import",
+            {
+                "imported": new_count,
+                "updated": updated_count,
+                "references_imported": imported_reference_count,
+                "links_imported": imported_link_count,
+                "errors": errors,
+            },
+        )
         + "\n"
     )

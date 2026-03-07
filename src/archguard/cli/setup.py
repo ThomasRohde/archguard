@@ -33,7 +33,9 @@ def init(
     if explain:
         sys.stderr.write(
             "init creates the guardrails/ data directory with empty JSONL files, "
-            "a taxonomy.json, and a .gitignore. The embedding model is bundled "
+            "a taxonomy.json, and a .gitignore. Unless --taxonomy is provided, "
+            "taxonomy.json starts with an empty scope array, so scope values are "
+            "unconstrained until you populate it. The embedding model is bundled "
             "with the package — no download needed. The SQLite index and embeddings "
             "are built lazily on the first add/search/build operation.\n"
         )
@@ -62,20 +64,17 @@ def init(
         if not fpath.exists():
             fpath.touch()
 
-    # Create taxonomy: explicit file > bundled default
+    # Create taxonomy: explicit file > empty default (free-form scope mode)
     if taxonomy and taxonomy.exists():
         import shutil
 
         shutil.copy(taxonomy, data_dir / "taxonomy.json")
     elif not (data_dir / "taxonomy.json").exists():
-        import shutil
+        import orjson
 
-        default_taxonomy = (
-            Path(__file__).resolve().parent.parent
-            / "defaults"
-            / "taxonomy.json"
+        (data_dir / "taxonomy.json").write_bytes(
+            orjson.dumps({"scope": []}, option=orjson.OPT_INDENT_2)
         )
-        shutil.copy(default_taxonomy, data_dir / "taxonomy.json")
 
     # Create .gitignore for the data directory
     gitignore = data_dir / ".gitignore"

@@ -107,6 +107,34 @@ class TestInitCommand:
         loaded = orjson.loads((data_dir / "taxonomy.json").read_bytes())
         assert "custom-scope" in loaded["scope"]
 
+    def test_init_without_taxonomy_starts_unconstrained(self, tmp_path) -> None:
+        data_dir = tmp_path / "guardrails"
+        result = runner.invoke(app, ["--data-dir", str(data_dir), "init"])
+        assert result.exit_code == 0
+        loaded = orjson.loads((data_dir / "taxonomy.json").read_bytes())
+        assert loaded["scope"] == []
+
+    def test_init_without_taxonomy_allows_free_form_scope(self, tmp_path) -> None:
+        data_dir = tmp_path / "guardrails"
+        init_result = runner.invoke(app, ["--data-dir", str(data_dir), "init"])
+        assert init_result.exit_code == 0
+        add_result = runner.invoke(
+            app,
+            ["--data-dir", str(data_dir), "add"],
+            input=json.dumps(
+                {
+                    "title": "Free-form scope guardrail",
+                    "severity": "should",
+                    "rationale": "Free-form scope should be accepted.",
+                    "guidance": "Use free-form scope labels until taxonomy is defined.",
+                    "scope": ["security"],
+                    "applies_to": ["technology"],
+                    "owner": "Platform Team",
+                }
+            ),
+        )
+        assert add_result.exit_code == 0
+
     def test_init_explain(self) -> None:
         result = runner.invoke(app, ["init", "--explain"])
         assert result.exit_code == 0
@@ -498,6 +526,90 @@ class TestSearchCommand:
         titles = [r["title"] for r in out["result"]["results"]]
         assert "Prefer managed messaging services over self-hosted brokers" in titles
 
+    def test_search_excludes_superseded_by_default(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        old_id = _add_guardrail(
+            dd,
+            json.dumps(
+                {
+                    "title": "Store secrets in the legacy vault",
+                    "severity": "must",
+                    "rationale": "Centralized storage protects credentials.",
+                    "guidance": "Store secrets in the legacy secret vault.",
+                    "scope": ["it-platform"],
+                    "applies_to": ["technology"],
+                    "owner": "Security Team",
+                }
+            ),
+        )
+        new_id = _add_guardrail(
+            dd,
+            json.dumps(
+                {
+                    "title": "Use platform secret stores",
+                    "severity": "must",
+                    "rationale": "Managed secret stores reduce leakage.",
+                    "guidance": "Store secrets in the managed platform secret store.",
+                    "scope": ["it-platform"],
+                    "applies_to": ["technology"],
+                    "owner": "Security Team",
+                }
+            ),
+        )
+        supersede_result = runner.invoke(
+            app, ["--data-dir", dd, "supersede", old_id, "--by", new_id]
+        )
+        assert supersede_result.exit_code == 0
+
+        result = runner.invoke(app, ["--data-dir", dd, "search", "secret vault"])
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        ids = [row["id"] for row in out["result"]["results"]]
+        assert old_id not in ids
+        assert out["result"]["filters_applied"]["status"] == ["draft", "active"]
+
+    def test_search_include_historical_surfaces_superseded_metadata(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        old_id = _add_guardrail(
+            dd,
+            json.dumps(
+                {
+                    "title": "Store secrets in the legacy vault",
+                    "severity": "must",
+                    "rationale": "Centralized storage protects credentials.",
+                    "guidance": "Store secrets in the legacy secret vault.",
+                    "scope": ["it-platform"],
+                    "applies_to": ["technology"],
+                    "owner": "Security Team",
+                }
+            ),
+        )
+        new_id = _add_guardrail(
+            dd,
+            json.dumps(
+                {
+                    "title": "Use platform secret stores",
+                    "severity": "must",
+                    "rationale": "Managed secret stores reduce leakage.",
+                    "guidance": "Store secrets in the managed platform secret store.",
+                    "scope": ["it-platform"],
+                    "applies_to": ["technology"],
+                    "owner": "Security Team",
+                }
+            ),
+        )
+        runner.invoke(app, ["--data-dir", dd, "supersede", old_id, "--by", new_id])
+
+        result = runner.invoke(
+            app, ["--data-dir", dd, "search", "secret vault", "--include-historical"]
+        )
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        superseded = [row for row in out["result"]["results"] if row["id"] == old_id]
+        assert superseded
+        assert superseded[0]["historical"] is True
+        assert superseded[0]["superseded_by"] == new_id
+
 
 class TestCheckCommand:
     def test_check_basic(self, tmp_path) -> None:
@@ -548,6 +660,100 @@ class TestCheckCommand:
         assert result.exit_code == 0
         out = _parse(result.output)
         assert out["result"]["context"]["decision"] == "Use managed database"
+
+    def test_check_excludes_superseded_by_default(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        old_id = _add_guardrail(
+            dd,
+            json.dumps(
+                {
+                    "title": "Store secrets in the legacy vault",
+                    "severity": "must",
+                    "rationale": "Centralized storage protects credentials.",
+                    "guidance": "Store secrets in the legacy secret vault.",
+                    "scope": ["it-platform"],
+                    "applies_to": ["technology"],
+                    "owner": "Security Team",
+                }
+            ),
+        )
+        new_id = _add_guardrail(
+            dd,
+            json.dumps(
+                {
+                    "title": "Use platform secret stores",
+                    "severity": "must",
+                    "rationale": "Managed secret stores reduce leakage.",
+                    "guidance": "Store secrets in the managed platform secret store.",
+                    "scope": ["it-platform"],
+                    "applies_to": ["technology"],
+                    "owner": "Security Team",
+                }
+            ),
+        )
+        runner.invoke(app, ["--data-dir", dd, "supersede", old_id, "--by", new_id])
+        context = json.dumps(
+            {
+                "decision": "Store application secrets centrally",
+                "scope": ["it-platform"],
+                "applies_to": ["technology"],
+                "tags": ["secret", "vault"],
+            }
+        )
+
+        result = runner.invoke(app, ["--data-dir", dd, "check"], input=context)
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        ids = [row["id"] for row in out["result"]["matches"]]
+        assert old_id not in ids
+        assert out["result"]["filters_applied"]["status"] == ["draft", "active"]
+
+    def test_check_status_filter_can_request_superseded_records(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        old_id = _add_guardrail(
+            dd,
+            json.dumps(
+                {
+                    "title": "Store secrets in the legacy vault",
+                    "severity": "must",
+                    "rationale": "Centralized storage protects credentials.",
+                    "guidance": "Store secrets in the legacy secret vault.",
+                    "scope": ["it-platform"],
+                    "applies_to": ["technology"],
+                    "owner": "Security Team",
+                }
+            ),
+        )
+        new_id = _add_guardrail(
+            dd,
+            json.dumps(
+                {
+                    "title": "Use platform secret stores",
+                    "severity": "must",
+                    "rationale": "Managed secret stores reduce leakage.",
+                    "guidance": "Store secrets in the managed platform secret store.",
+                    "scope": ["it-platform"],
+                    "applies_to": ["technology"],
+                    "owner": "Security Team",
+                }
+            ),
+        )
+        runner.invoke(app, ["--data-dir", dd, "supersede", old_id, "--by", new_id])
+        context = json.dumps(
+            {
+                "decision": "Store application secrets centrally",
+                "scope": ["it-platform"],
+                "applies_to": ["technology"],
+                "tags": ["secret", "vault"],
+            }
+        )
+
+        result = runner.invoke(
+            app, ["--data-dir", dd, "check", "--status", "superseded"], input=context
+        )
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        assert [row["id"] for row in out["result"]["matches"]] == [old_id]
 
     def test_check_surfaces_broader_messaging_guardrail(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -1126,6 +1332,65 @@ class TestImportCommand:
         assert out["result"]["imported"] == 1
         assert out["result"]["updated"] == 0
 
+    def test_import_export_snapshot_restores_references_and_links(self, tmp_path) -> None:
+        taxonomy = tmp_path / "taxonomy.json"
+        taxonomy.write_bytes(
+            orjson.dumps({"scope": ["it-platform", "data-platform", "channels"]})
+        )
+        source_dir = tmp_path / "source"
+        target_dir = tmp_path / "target"
+        source_init = runner.invoke(
+            app, ["--data-dir", str(source_dir), "init", "--taxonomy", str(taxonomy)]
+        )
+        target_init = runner.invoke(
+            app, ["--data-dir", str(target_dir), "init", "--taxonomy", str(taxonomy)]
+        )
+        assert source_init.exit_code == 0
+        assert target_init.exit_code == 0
+
+        first_id = _parse(
+            runner.invoke(app, ["--data-dir", str(source_dir), "add"], input=ADD_INPUT).output
+        )["result"]["guardrail"]["id"]
+        second_id = _parse(
+            runner.invoke(app, ["--data-dir", str(source_dir), "add"], input=ADD_INPUT_2).output
+        )["result"]["guardrail"]["id"]
+        ref_result = runner.invoke(
+            app,
+            ["--data-dir", str(source_dir), "ref-add", first_id],
+            input=json.dumps(
+                {"ref_type": "policy", "ref_id": "POL-1", "ref_title": "Secrets Policy"}
+            ),
+        )
+        link_result = runner.invoke(
+            app, ["--data-dir", str(source_dir), "link", first_id, second_id, "--rel", "supports"]
+        )
+        assert ref_result.exit_code == 0
+        assert link_result.exit_code == 0
+
+        export_result = runner.invoke(
+            app, ["--data-dir", str(source_dir), "export", "--format", "json"]
+        )
+        assert export_result.exit_code == 0
+        snapshot_file = tmp_path / "snapshot.json"
+        snapshot_file.write_text(export_result.output, encoding="utf-8")
+
+        import_result = runner.invoke(
+            app, ["--data-dir", str(target_dir), "import", str(snapshot_file)]
+        )
+        assert import_result.exit_code == 0
+        out = _parse(import_result.output)
+        assert out["result"]["imported"] == 2
+        assert out["result"]["references_imported"] == 1
+        assert out["result"]["links_imported"] == 1
+
+        target_export = runner.invoke(
+            app, ["--data-dir", str(target_dir), "export", "--format", "json"]
+        )
+        exported = _parse(target_export.output)
+        assert len(exported["result"]["guardrails"]) == 2
+        assert len(exported["result"]["references"]) == 1
+        assert len(exported["result"]["links"]) == 1
+
     def test_import_csv(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         import_file = tmp_path / "import.csv"
@@ -1139,6 +1404,23 @@ class TestImportCommand:
         out = _parse(result.output)
         assert out["ok"] is True
         assert out["result"]["imported"] == 1
+
+    def test_import_csv_accepts_blank_review_date(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        import_file = tmp_path / "import.csv"
+        import_file.write_text(
+            "id,title,status,severity,rationale,guidance,exceptions,consequences,scope,"
+            "applies_to,lifecycle_stage,owner,review_date,superseded_by,created_at,"
+            "updated_at,metadata\n"
+            ",CSV guardrail,draft,should,Test reason,Test guidance,,,it-platform,"
+            "technology,acquire,CSV Team,,,,,\n",
+            encoding="utf-8",
+        )
+        result = runner.invoke(app, ["--data-dir", dd, "import", str(import_file)])
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        assert out["result"]["imported"] == 1
+        assert out["result"]["errors"] == []
 
     def test_import_upsert_by_title(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)

@@ -46,7 +46,7 @@ class TestValidateCorpusClean:
             }
         )
         warnings = check_authoring_quality(guardrail, references=[object()])  # type: ignore[list-item]
-        assert all("guidance contains no normative language" not in w for w in warnings)
+        assert all("guidance may be too soft or descriptive" not in w for w in warnings)
 
 
 class TestValidateCorpusErrors:

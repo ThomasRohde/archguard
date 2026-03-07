@@ -73,22 +73,28 @@ def format_search_results(
     table = Table(title=f"Search: [italic]{query}[/italic]", show_lines=False)
     table.add_column("#", style="dim", justify="right")
     table.add_column("Title")
+    table.add_column("Status")
     table.add_column("Severity")
     table.add_column("Score", justify="right")
     table.add_column("Sources")
 
     for rank, r in enumerate(results, 1):
         severity_text = Text(r.severity, style=_severity_style(r.severity))
+        status_text = Text(r.status, style=_status_style(r.status))
+        title = r.title
+        if r.superseded_by:
+            title = f"{title} (superseded by {r.superseded_by[:8]})"
         table.add_row(
             str(rank),
-            r.title,
+            title,
+            status_text,
             severity_text,
             f"{r.score:.2f}",
             ", ".join(r.match_sources),
         )
 
     table.add_section()
-    table.add_row("", f"[bold]{total}[/bold] total", "", "", "")
+    table.add_row("", f"[bold]{total}[/bold] total", "", "", "", "")
 
     return _capture(table)
 

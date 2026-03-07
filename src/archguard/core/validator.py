@@ -52,10 +52,13 @@ _NORMATIVE_RE = re.compile(
 )
 _IMPERATIVE_GUIDANCE_RE = re.compile(
     (
-        r"^\s*(do\s+not|don't|never|always|only|avoid|prefer|use|adopt|configure|"
+        r"^\s*(?:[-*]\s+|\d+\.\s+)?"
+        r"(do\s+not|don't|never|always|only|avoid|prefer|use|adopt|configure|"
         r"enable|disable|encrypt|rotate|store|run|deploy|route|document|approve|"
         r"require|validate|authenticate|authorize|restrict|pin|separate|emit|log|"
-        r"keep|treat)\b"
+        r"keep|treat|register|provision|monitor|backup|retain|classify|protect|"
+        r"segment|isolate|standardize|centralize|review|record|publish|scan|"
+        r"terminate|expose|maintain|map|label)\b"
     ),
     re.IGNORECASE,
 )
@@ -116,8 +119,9 @@ def check_authoring_quality(
         or _IMPERATIVE_GUIDANCE_RE.search(guardrail.guidance)
     ):
         warnings.append(
-            f"Guardrail {gid}: guidance contains no normative language "
-            f"(RFC 2119 keywords or imperative rule wording). State the rule clearly."
+            f"Guardrail {gid}: guidance may be too soft or descriptive. "
+            f"Consider making the rule more explicit with normative language "
+            f"or clearer imperative wording."
         )
 
     # Rationale repeats guidance (high overlap)

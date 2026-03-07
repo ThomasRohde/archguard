@@ -200,6 +200,70 @@ def _build_feedback_index(tmp_path: Path) -> Path:
     return db_path
 
 
+def _build_historical_index(tmp_path: Path) -> Path:
+    """Build a test index with active and superseded results for lifecycle filtering."""
+    import orjson
+
+    data_dir = tmp_path / "historical_guardrails"
+    data_dir.mkdir()
+    (data_dir / "references.jsonl").touch()
+    (data_dir / "links.jsonl").touch()
+    (data_dir / "taxonomy.json").write_bytes(orjson.dumps({"scope": ["it-platform"]}))
+
+    guardrails_data = [
+        {
+            "id": "01TEST_ACTIVE_SECRET000001",
+            "title": "Use platform secret stores",
+            "status": "active",
+            "severity": "must",
+            "rationale": "Secret stores reduce credential leakage.",
+            "guidance": "Store application secrets in the managed platform secret store.",
+            "exceptions": "",
+            "consequences": "",
+            "scope": ["it-platform"],
+            "applies_to": ["technology"],
+            "lifecycle_stage": ["build"],
+            "owner": "Security Team",
+            "review_date": None,
+            "superseded_by": None,
+            "created_at": "2025-06-15T10:30:00Z",
+            "updated_at": "2025-06-15T10:30:00Z",
+            "metadata": {},
+        },
+        {
+            "id": "01TEST_OLD_SECRET00000002",
+            "title": "Store secrets in a central vault",
+            "status": "superseded",
+            "severity": "must",
+            "rationale": "A central vault protects credentials.",
+            "guidance": "Store secrets in the old central vault.",
+            "exceptions": "",
+            "consequences": "",
+            "scope": ["it-platform"],
+            "applies_to": ["technology"],
+            "lifecycle_stage": ["build"],
+            "owner": "Security Team",
+            "review_date": None,
+            "superseded_by": "01TEST_ACTIVE_SECRET000001",
+            "created_at": "2025-06-15T10:30:00Z",
+            "updated_at": "2025-06-15T10:30:00Z",
+            "metadata": {},
+        },
+    ]
+
+    with (data_dir / "guardrails.jsonl").open("wb") as f:
+        for g in guardrails_data:
+            f.write(orjson.dumps(g) + b"\n")
+
+    from archguard.core.index import build_index
+    from archguard.core.models import Guardrail
+
+    db_path = data_dir / ".guardrails.db"
+    models = [Guardrail(**g) for g in guardrails_data]
+    build_index(db_path, models, [], [])
+    return db_path
+
+
 class TestBM25Search:
     def test_matches_keyword(self, tmp_path) -> None:
         db_path = _build_test_index(tmp_path)
@@ -338,3 +402,26 @@ class TestHybridSearch:
         results, _ = hybrid_search(db_path, "managed kafka", model=None)
         doc_ids = [r.id for r in results]
         assert "01TEST_ENCRYPT_KEYS0000003" not in doc_ids
+
+    def test_status_list_filter_can_exclude_historical_records(self, tmp_path) -> None:
+        db_path = _build_historical_index(tmp_path)
+        results, _ = hybrid_search(
+            db_path,
+            "secret vault",
+            model=None,
+            filters={"status": ["draft", "active"]},
+        )
+        assert all(result.status in {"draft", "active"} for result in results)
+
+    def test_historical_results_surface_superseded_by(self, tmp_path) -> None:
+        db_path = _build_historical_index(tmp_path)
+        results, _ = hybrid_search(
+            db_path,
+            "vault",
+            model=None,
+            demote_historical=True,
+            min_score=0.0,
+        )
+        historical = [result for result in results if result.historical]
+        assert historical
+        assert historical[0].superseded_by == "01TEST_ACTIVE_SECRET000001"
