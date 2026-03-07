@@ -18,3 +18,4 @@ All notable changes to this project will be documented in this file.
 - Hardened `guide` and `add --explain/--schema` with provenance/defaulting guidance for authoring guardrails from source material
 - Tightened `active` guardrail validation: active records now require an authoritative reference, at least one evidence-bearing `excerpt`, and a non-placeholder owner
 - Documented the neutral placeholder workflow (`unassigned`) for draft records when accountable ownership is not stated by the source
+- Expanded `README.md` with practical taxonomy guidance covering free-form vs controlled `scope`, bootstrap examples, validation behavior, and recommended team workflow
