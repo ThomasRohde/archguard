@@ -6,6 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from archguard.core.public_ids import validate_public_id
+
 
 def _blank_to_none(v: str | None) -> str | None:
     """Normalize blank optional strings to None."""
@@ -50,6 +52,7 @@ class Guardrail(BaseModel):
     """A named, scoped architectural constraint."""
 
     id: str = Field(..., description="ULID identifier")
+    public_id: str | None = Field(default=None, description="User-facing guardrail ID")
     title: str = Field(..., min_length=1, max_length=200)
     status: Literal["draft", "active", "deprecated", "superseded"]
     severity: Literal["must", "should", "may"]
@@ -75,6 +78,11 @@ class Guardrail(BaseModel):
     @classmethod
     def _validate_review_date(cls, v: str | None) -> str | None:
         return _validate_iso_date(v)
+
+    @field_validator("public_id", mode="before")
+    @classmethod
+    def _validate_public_id(cls, v: str | None) -> str | None:
+        return validate_public_id(v)
 
     @field_validator("created_at", "updated_at", mode="before")
     @classmethod
@@ -157,6 +165,7 @@ class GuardrailImport(BaseModel):
     """Input for importing a guardrail with optional identity preservation."""
 
     id: str | None = None
+    public_id: str | None = None
     title: str = Field(..., min_length=1, max_length=200)
     status: Literal["draft", "active", "deprecated", "superseded"] = "draft"
     severity: Literal["must", "should", "may"]
@@ -178,6 +187,11 @@ class GuardrailImport(BaseModel):
     @classmethod
     def _normalize_optional_strings(cls, v: str | None) -> str | None:
         return _blank_to_none(v)
+
+    @field_validator("public_id", mode="before")
+    @classmethod
+    def _validate_public_id(cls, v: str | None) -> str | None:
+        return validate_public_id(_blank_to_none(v))
 
     @field_validator("review_date", mode="before")
     @classmethod
@@ -247,11 +261,13 @@ class SearchResult(BaseModel):
     """A single search hit returned to the agent."""
 
     id: str
+    public_id: str | None = None
     title: str
     severity: Literal["must", "should", "may"]
     status: str
     historical: bool = False
     superseded_by: str | None = None
+    superseded_by_public_id: str | None = None
     score: float
     relevance: Literal["high", "medium", "low"]
     match_sources: list[Literal["bm25", "vector"]]

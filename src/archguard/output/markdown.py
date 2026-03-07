@@ -7,6 +7,7 @@ from datetime import date
 from typing import Any
 
 from archguard.core.models import Guardrail, Link, Reference, SearchResult
+from archguard.core.public_ids import display_guardrail_id, display_identifier_value
 
 _SEVERITY_ORDER = {"must": 0, "should": 1, "may": 2}
 _SEVERITY_BADGE = {"must": "MUST", "should": "SHOULD", "may": "MAY"}
@@ -26,16 +27,34 @@ def _escape(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
 
 
+def _format_export_link(current_id: str, link: Link, guardrail_map: dict[str, Guardrail]) -> str:
+    """Format a relationship entry for the full markdown export."""
+    if link.from_id == current_id:
+        other_id = link.to_id
+        rel_text = f"{link.rel_type} ->"
+    else:
+        other_id = link.from_id
+        rel_text = f"<- {link.rel_type}"
+
+    other = guardrail_map.get(other_id)
+    identifier = display_identifier_value(other_id, guardrail_map) or other_id[:8]
+    title_part = f" - {_escape(other.title)}" if other else ""
+    note_part = f" ({_escape(link.note)})" if link.note else ""
+    return f"- {rel_text} `{identifier}`{title_part}{note_part}"
+
+
 def format_search_results_md(results: list[SearchResult], total: int, query: str) -> str:
     """Format search results as a Markdown table."""
-    headers = ["#", "Title", "Status", "Severity", "Score", "Sources"]
+    headers = ["#", "ID", "Title", "Status", "Severity", "Score", "Sources"]
     rows: list[list[str]] = []
     for rank, r in enumerate(results, 1):
         title = r.title
         if r.superseded_by:
-            title = f"{title} (superseded by {r.superseded_by[:8]})"
+            superseded_display = r.superseded_by_public_id or r.superseded_by[:8]
+            title = f"{title} (superseded by {superseded_display})"
         rows.append([
             str(rank),
+            r.public_id or r.id[:8],
             _escape(title),
             r.status,
             r.severity,
@@ -52,7 +71,7 @@ def format_guardrail_list_md(guardrails: list[Guardrail], total: int) -> str:
     rows: list[list[str]] = []
     for g in guardrails:
         rows.append([
-            g.id[:8],
+            display_guardrail_id(g),
             _escape(g.title),
             g.status,
             g.severity,
@@ -63,7 +82,11 @@ def format_guardrail_list_md(guardrails: list[Guardrail], total: int) -> str:
     return f"{table}\n\n*{total} total*\n"
 
 
-def format_export_md(guardrails: list[Guardrail], references: list[Reference]) -> str:
+def format_export_md(
+    guardrails: list[Guardrail],
+    references: list[Reference],
+    links: list[Link] | None = None,
+) -> str:
     """Full Confluence-style export of all guardrails."""
     parts: list[str] = []
 
@@ -95,11 +118,17 @@ def format_export_md(guardrails: list[Guardrail], references: list[Reference]) -
     for ref in references:
         ref_by_gid[ref.guardrail_id].append(ref)
 
-    # Group by scope
+    guardrail_map = {g.id: g for g in guardrails}
+    link_by_gid: dict[str, list[Link]] = defaultdict(list)
+    for link in links or []:
+        link_by_gid[link.from_id].append(link)
+        if link.to_id != link.from_id:
+            link_by_gid[link.to_id].append(link)
+
+    # Group by primary scope so multi-scope guardrails are exported once.
     scope_groups: dict[str, list[Guardrail]] = defaultdict(list)
     for g in guardrails:
-        for s in g.scope:
-            scope_groups[s].append(g)
+        scope_groups[g.scope[0]].append(g)
 
     today = date.today()
 
@@ -109,12 +138,15 @@ def format_export_md(guardrails: list[Guardrail], references: list[Reference]) -
         # Sort by severity
         scope_guardrails = sorted(
             scope_groups[scope_name],
-            key=lambda g: _SEVERITY_ORDER.get(g.severity, 99),
+            key=lambda g: (_SEVERITY_ORDER.get(g.severity, 99), g.title.casefold()),
         )
 
         for g in scope_guardrails:
             badge = f"**[{_SEVERITY_BADGE.get(g.severity, g.severity)}]**"
             parts.append(f"### {badge} {_escape(g.title)}\n")
+            if g.public_id:
+                parts.append(f"**Public ID:** `{g.public_id}`\n")
+            parts.append(f"**Internal ID:** `{g.id}`\n")
 
             # Review date warning
             if g.review_date:
@@ -126,6 +158,7 @@ def format_export_md(guardrails: list[Guardrail], references: list[Reference]) -
                 else:
                     parts.append(f"> Review date: {g.review_date}\n")
 
+            parts.append(f"**Scope:** {', '.join(g.scope)}\n")
             parts.append(f"**Status:** {g.status} | **Owner:** {_escape(g.owner)}\n")
 
             parts.append("**Guidance:**\n")
@@ -143,24 +176,48 @@ def format_export_md(guardrails: list[Guardrail], references: list[Reference]) -
             if grefs:
                 parts.append("**References:**\n")
                 for ref in grefs:
-                    url_part = f" — [{ref.ref_url}]({ref.ref_url})" if ref.ref_url else ""
+                    url_part = f" - [{ref.ref_url}]({ref.ref_url})" if ref.ref_url else ""
                     parts.append(f"- [{ref.ref_type}] {_escape(ref.ref_title)}{url_part}")
                     if ref.excerpt:
                         parts.append(f"  > {_escape(ref.excerpt)}")
+                parts.append("")
+
+            glinks = sorted(
+                link_by_gid.get(g.id, []),
+                key=lambda link: (
+                    display_identifier_value(
+                        link.to_id if link.from_id == g.id else link.from_id,
+                        guardrail_map,
+                    )
+                    or (link.to_id if link.from_id == g.id else link.from_id)[:8],
+                    link.rel_type,
+                    link.note,
+                ),
+            )
+            if glinks:
+                parts.append("**Links:**\n")
+                for link in glinks:
+                    parts.append(_format_export_link(g.id, link, guardrail_map))
                 parts.append("")
 
     return "\n".join(parts) + "\n"
 
 
 def format_guardrail_detail_md(
-    guardrail: Guardrail, refs: list[Reference], links: list[Link]
+    guardrail: Guardrail,
+    refs: list[Reference],
+    links: list[Link],
+    guardrail_map: dict[str, Guardrail] | None = None,
 ) -> str:
     """Format a single guardrail with full detail in Markdown."""
     g = guardrail
+    guardrail_map = guardrail_map or {g.id: g}
     parts: list[str] = []
 
     badge = f"**[{_SEVERITY_BADGE.get(g.severity, g.severity)}]**"
     parts.append(f"## {badge} {_escape(g.title)}\n")
+    if g.public_id:
+        parts.append(f"**Public ID:** `{g.public_id}`\n")
     parts.append(f"**ID:** `{g.id}`\n")
     parts.append(
         f"**Status:** {g.status} | **Severity:** {g.severity} "
@@ -209,8 +266,9 @@ def format_guardrail_detail_md(
         for lnk in links:
             note_part = f" — {lnk.note}" if lnk.note else ""
             parts.append(
-                f"- {lnk.rel_type}: `{lnk.from_id[:8]}` -> "
-                f"`{lnk.to_id[:8]}`{note_part}"
+                f"- {lnk.rel_type}: `"
+                f"{display_identifier_value(lnk.from_id, guardrail_map) or lnk.from_id[:8]}` -> `"
+                f"{display_identifier_value(lnk.to_id, guardrail_map) or lnk.to_id[:8]}`{note_part}"
             )
         parts.append("")
 
@@ -264,6 +322,7 @@ def format_review_due_md(guardrails: list[Guardrail], cutoff: str) -> str:
         else:
             days_overdue = 0
         rows.append([g.id[:8], _escape(g.title), review, str(days_overdue)])
+        rows[-1][0] = display_guardrail_id(g)
 
     table = _md_table(headers, rows)
     return f"## Reviews Due\n\n{table}\n"

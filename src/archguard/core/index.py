@@ -34,6 +34,7 @@ def create_schema(conn: sqlite3.Connection) -> None:
 
         CREATE TABLE IF NOT EXISTS guardrails (
             id TEXT PRIMARY KEY,
+            public_id TEXT UNIQUE,
             title TEXT NOT NULL,
             status TEXT NOT NULL,
             severity TEXT NOT NULL,
@@ -113,13 +114,15 @@ def build_index(
         # Insert guardrails
         conn.executemany(
             """INSERT INTO guardrails
-               (id, title, status, severity, rationale, guidance, exceptions, consequences,
+               (id, public_id, title, status, severity, rationale, guidance,
+                exceptions, consequences,
                 scope, applies_to, lifecycle_stage, owner, review_date, superseded_by,
                 created_at, updated_at, metadata, embedding)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 (
                     g.id,
+                    g.public_id,
                     g.title,
                     g.status,
                     g.severity,

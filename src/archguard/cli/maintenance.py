@@ -20,6 +20,7 @@ from archguard.cli import (
     summarize_validation_error,
 )
 from archguard.core.models import Guardrail
+from archguard.core.public_ids import next_public_id
 from archguard.core.search_terms import normalize_text
 from archguard.output.json import envelope
 
@@ -384,6 +385,7 @@ def import_guardrails(
                 )
             for optional_field in (
                 "id",
+                "public_id",
                 "review_date",
                 "superseded_by",
                 "created_at",
@@ -440,9 +442,22 @@ def import_guardrails(
 
         if existing is not None:
             merged = existing.model_dump()
+            incoming_data = imp.model_dump(exclude_none=True)
+            if (
+                "public_id" in incoming_data
+                and existing.public_id is not None
+                and incoming_data["public_id"] != existing.public_id
+            ):
+                errors.append(
+                    f"Record {i}: public_id '{incoming_data['public_id']}' does not match "
+                    f"existing immutable value '{existing.public_id}'"
+                )
+                continue
             for field_name, value in imp.model_dump(exclude_none=True).items():
                 if field_name not in ("id", "created_at"):
                     merged[field_name] = value
+            if merged.get("public_id") is None:
+                merged["public_id"] = imp.public_id or next_public_id(guardrails)
             merged["updated_at"] = imp.updated_at or now
             updated_obj = Guardrail.model_validate(merged)
             by_id[existing.id] = updated_obj
@@ -458,6 +473,7 @@ def import_guardrails(
             guardrail_id = imp.id or str(ULID())
             full = Guardrail(
                 id=guardrail_id,
+                public_id=imp.public_id or next_public_id(guardrails),
                 title=imp.title,
                 status=imp.status,
                 severity=imp.severity,

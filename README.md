@@ -28,6 +28,13 @@ uv tool install archguard
 
 `archguard init` creates the JSONL repository files and taxonomy. By default, `taxonomy.json` starts with an empty `scope` array, which means `scope` is free-form until you decide to lock it down. The SQLite index and embedding vectors are built lazily on the first `add`, `search`, or `build`.
 
+Each guardrail keeps two identifiers:
+
+- `id` — the internal ULID used for storage and relationships
+- `public_id` — the immutable user-facing ID in `gr-0001` format
+
+After a guardrail is created, CLI commands that accept a guardrail ID accept **either** identifier. Human-facing output prefers the public ID.
+
 ### POSIX shells
 
 ```bash
@@ -36,6 +43,10 @@ archguard init
 
 # Add a guardrail from stdin
 echo '{"title":"Prefer managed services","severity":"should","rationale":"Reduce ops","guidance":"Use managed offerings","scope":["it-platform"],"applies_to":["technology"],"owner":"Platform Team"}' | archguard add
+
+# Fetch or update by public ID after creation
+archguard get gr-0001
+echo '{"title":"Prefer managed platform services"}' | archguard update gr-0001
 
 # Search guardrails
 archguard search "managed services"
@@ -62,8 +73,8 @@ Get-Content .\g.json | archguard add
 Get-Content .\decision.json | archguard check
 
 # Update and ref-add also read JSON from stdin
-Get-Content .\patch.json | archguard update 01HXYZ...
-Get-Content .\reference.json | archguard ref-add 01HXYZ...
+Get-Content .\patch.json | archguard update gr-0001
+Get-Content .\reference.json | archguard ref-add gr-0001
 ```
 
 ## Understanding taxonomy
@@ -229,17 +240,17 @@ Example decision context:
 | Command | Description |
 |---------|-------------|
 | `archguard init` | Create repository files and taxonomy; search index warms lazily |
-| `archguard add` | Add a guardrail (reads JSON from stdin) |
-| `archguard get <id>` | Get full detail for a guardrail |
+| `archguard add` | Add a guardrail and allocate a public ID such as `gr-0001` |
+| `archguard get <id>` | Get full detail by internal ULID or public ID |
 | `archguard list` | List guardrails with filters |
 | `archguard search <query>` | Hybrid BM25 + vector search |
 | `archguard check` | Validate a decision against the corpus |
-| `archguard update <id>` | Patch a guardrail (reads JSON from stdin) |
-| `archguard deprecate <id>` | Mark a guardrail as deprecated |
-| `archguard supersede <id> --by <new_id>` | Replace one guardrail with another |
-| `archguard ref-add <id>` | Add a reference to a guardrail |
-| `archguard link <from> <to>` | Create a relationship between guardrails |
-| `archguard related <id>` | Show linked guardrails |
+| `archguard update <id>` | Patch a guardrail by internal ULID or public ID (reads JSON from stdin) |
+| `archguard deprecate <id>` | Mark a guardrail as deprecated by internal ULID or public ID |
+| `archguard supersede <id> --by <new_id>` | Replace one guardrail with another using internal or public IDs |
+| `archguard ref-add <id>` | Add a reference to a guardrail by internal ULID or public ID |
+| `archguard link <from> <to>` | Create a relationship between guardrails using internal or public IDs |
+| `archguard related <id>` | Show linked guardrails by internal ULID or public ID |
 | `archguard export` | Export as JSON, CSV, or Markdown |
 | `archguard import <file>` | Bulk import from JSON or CSV |
 | `archguard stats` | Counts by status, severity, scope |
@@ -249,6 +260,11 @@ Example decision context:
 | `archguard validate` | Check data integrity |
 
 Every command supports `--explain` for a description and `--help` for usage.
+
+Commands that target a guardrail identifier now document and accept either:
+
+- the internal ULID, or
+- the public ID, e.g. `gr-0001`
 
 For compact, highly normative corpora, `archguard deduplicate` defaults to a threshold of `0.65` so short near-duplicates are easier to catch without immediately dropping into manual tuning.
 

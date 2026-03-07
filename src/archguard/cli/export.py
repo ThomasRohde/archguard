@@ -77,7 +77,7 @@ def export(
     elif format == "csv":
         buf = io.StringIO()
         columns = [
-            "id", "title", "status", "severity", "rationale", "guidance",
+            "id", "public_id", "title", "status", "severity", "rationale", "guidance",
             "exceptions", "consequences", "scope", "applies_to",
             "lifecycle_stage", "owner", "review_date", "superseded_by",
             "created_at", "updated_at", "metadata",
@@ -87,6 +87,7 @@ def export(
         for g in guardrails:
             writer.writerow({
                 "id": g.id,
+                "public_id": g.public_id or "",
                 "title": g.title,
                 "status": g.status,
                 "severity": g.severity,
@@ -113,8 +114,15 @@ def export(
             sys.stdout.write(content)
     elif format == "markdown":
         from archguard.output.markdown import format_export_md
+
         references = load_references(data_dir)
-        content = format_export_md(guardrails, references)
+        guardrail_ids = {g.id for g in guardrails}
+        links = [
+            link
+            for link in load_links(data_dir)
+            if link.from_id in guardrail_ids and link.to_id in guardrail_ids
+        ]
+        content = format_export_md(guardrails, references, links)
         if is_llm_mode():
             sys.stdout.write(
                 envelope("export", {"content": content, "format": "markdown"}) + "\n"

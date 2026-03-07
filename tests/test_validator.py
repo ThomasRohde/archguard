@@ -133,6 +133,19 @@ class TestValidateCorpusErrors:
         assert not result.ok
         assert any("Duplicate" in e for e in result.errors)
 
+    def test_duplicate_public_ids(self, tmp_data_dir: Path, sample_guardrail_dict: dict) -> None:
+        other = {
+            **sample_guardrail_dict,
+            "id": "01HXR00000000000000000TST2",
+            "title": "Another rule",
+        }
+        (tmp_data_dir / "guardrails.jsonl").write_bytes(
+            orjson.dumps(sample_guardrail_dict) + b"\n" + orjson.dumps(other) + b"\n"
+        )
+        result = validate_corpus(tmp_data_dir)
+        assert not result.ok
+        assert any("Duplicate public guardrail ID: gr-0001" in e for e in result.errors)
+
     def test_orphan_reference(self, tmp_data_dir: Path, sample_guardrail_dict: dict) -> None:
         (tmp_data_dir / "guardrails.jsonl").write_bytes(
             orjson.dumps(sample_guardrail_dict) + b"\n"

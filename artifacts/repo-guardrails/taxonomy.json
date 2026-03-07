@@ -1,0 +1,11 @@
+{
+  "scope": [
+    "storage-architecture",
+    "runtime-architecture",
+    "cli-contract",
+    "data-model",
+    "agent-experience",
+    "lifecycle-governance",
+    "quality-gates"
+  ]
+}

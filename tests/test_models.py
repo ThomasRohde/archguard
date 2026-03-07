@@ -39,6 +39,11 @@ class TestGuardrail:
         with pytest.raises(ValidationError):
             Guardrail.model_validate(sample_guardrail_dict)
 
+    def test_invalid_public_id_rejected(self, sample_guardrail_dict: dict) -> None:
+        sample_guardrail_dict["public_id"] = "GR-1"
+        with pytest.raises(ValidationError):
+            Guardrail.model_validate(sample_guardrail_dict)
+
 
 class TestGuardrailPatch:
     def test_all_none_is_valid(self) -> None:

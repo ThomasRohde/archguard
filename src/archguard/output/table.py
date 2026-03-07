@@ -12,6 +12,7 @@ from rich.table import Table
 from rich.text import Text
 
 from archguard.core.models import Guardrail, Link, Reference, SearchResult
+from archguard.core.public_ids import display_guardrail_id, display_identifier_value
 
 
 def _severity_style(severity: str) -> str:
@@ -41,7 +42,7 @@ def _capture(renderable: RenderableType) -> str:
 def format_guardrail_list(guardrails: list[Guardrail], total: int) -> str:
     """Format a list of guardrails as a Rich table."""
     table = Table(title="Guardrails", show_lines=False)
-    table.add_column("ID", style="cyan", max_width=8)
+    table.add_column("ID", style="cyan", max_width=12)
     table.add_column("Title")
     table.add_column("Status")
     table.add_column("Severity")
@@ -52,7 +53,7 @@ def format_guardrail_list(guardrails: list[Guardrail], total: int) -> str:
         status_text = Text(g.status, style=_status_style(g.status))
         severity_text = Text(g.severity, style=_severity_style(g.severity))
         table.add_row(
-            g.id[:8],
+            display_guardrail_id(g),
             g.title,
             status_text,
             severity_text,
@@ -72,6 +73,7 @@ def format_search_results(
     """Format search results as a Rich table."""
     table = Table(title=f"Search: [italic]{query}[/italic]", show_lines=False)
     table.add_column("#", style="dim", justify="right")
+    table.add_column("ID", style="cyan", max_width=12)
     table.add_column("Title")
     table.add_column("Status")
     table.add_column("Severity")
@@ -83,9 +85,11 @@ def format_search_results(
         status_text = Text(r.status, style=_status_style(r.status))
         title = r.title
         if r.superseded_by:
-            title = f"{title} (superseded by {r.superseded_by[:8]})"
+            superseded_display = r.superseded_by_public_id or r.superseded_by[:8]
+            title = f"{title} (superseded by {superseded_display})"
         table.add_row(
             str(rank),
+            r.public_id or r.id[:8],
             title,
             status_text,
             severity_text,
@@ -141,7 +145,7 @@ def format_review_due(guardrails: list[Guardrail], cutoff: str) -> str:
     """Format guardrails with overdue reviews as a Rich table."""
     today = date.fromisoformat(cutoff)
     table = Table(title="Reviews Due", show_lines=False)
-    table.add_column("ID", style="cyan", max_width=8)
+    table.add_column("ID", style="cyan", max_width=12)
     table.add_column("Title")
     table.add_column("Review Date")
     table.add_column("Days Overdue", justify="right", style="red")
@@ -155,7 +159,7 @@ def format_review_due(guardrails: list[Guardrail], cutoff: str) -> str:
             days_overdue = 0
 
         table.add_row(
-            g.id[:8],
+            display_guardrail_id(g),
             g.title,
             review,
             str(days_overdue),
@@ -165,10 +169,14 @@ def format_review_due(guardrails: list[Guardrail], cutoff: str) -> str:
 
 
 def format_guardrail_detail(
-    guardrail: Guardrail, refs: list[Reference], links: list[Link]
+    guardrail: Guardrail,
+    refs: list[Reference],
+    links: list[Link],
+    guardrail_map: dict[str, Guardrail] | None = None,
 ) -> str:
     """Format a single guardrail with full detail, refs, and links."""
     g = guardrail
+    guardrail_map = guardrail_map or {g.id: g}
     lines: list[str] = []
 
     sev_style = _severity_style(g.severity)
@@ -176,6 +184,8 @@ def format_guardrail_detail(
 
     lines.append(f"[bold]{g.title}[/bold]")
     lines.append("")
+    if g.public_id:
+        lines.append(f"[dim]Public ID:[/dim] {g.public_id}")
     lines.append(f"[dim]ID:[/dim]       {g.id}")
     if stat_style:
         lines.append(f"[dim]Status:[/dim]   [{stat_style}]{g.status}[/{stat_style}]")
@@ -232,7 +242,11 @@ def format_guardrail_detail(
         for lnk in links:
             note_part = f" - {lnk.note}" if lnk.note else ""
             lines.append(
-                f"  {lnk.rel_type}: {lnk.from_id[:8]} -> {lnk.to_id[:8]}{note_part}"
+                "  "
+                f"{lnk.rel_type}: "
+                f"{display_identifier_value(lnk.from_id, guardrail_map) or lnk.from_id[:8]} -> "
+                f"{display_identifier_value(lnk.to_id, guardrail_map) or lnk.to_id[:8]}"
+                f"{note_part}"
             )
 
     panel = Panel("\n".join(lines), border_style="blue")

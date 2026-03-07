@@ -223,7 +223,15 @@ class TestAddCommand:
         out = _parse(result.output)
         _assert_envelope(out, ok=True, command="add")
         assert out["result"]["guardrail"]["title"] == "Prefer managed services"
+        assert out["result"]["guardrail"]["public_id"] == "gr-0001"
         assert len(out["result"]["guardrail"]["id"]) == 26  # ULID length
+
+    def test_add_allocates_sequential_public_ids(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        first = _parse(runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT).output)
+        second = _parse(runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT_2).output)
+        assert first["result"]["guardrail"]["public_id"] == "gr-0001"
+        assert second["result"]["guardrail"]["public_id"] == "gr-0002"
 
     def test_add_duplicate_title(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -322,6 +330,7 @@ class TestAddCommand:
         result = runner.invoke(app, ["add", "--explain"])
         assert result.exit_code == 0
         assert "add reads" in result.output
+        assert "gr-0001" in result.output
         assert "Invented owner" in result.output
         assert "include an excerpt" in result.output
 
@@ -438,6 +447,15 @@ class TestGetCommand:
         out = _parse(result.output)
         assert out["ok"] is False
         assert out["errors"][0]["code"] == "ERR_RESOURCE_NOT_FOUND"
+
+    def test_get_by_public_id(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        add_result = _parse(runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT).output)
+        public_id = add_result["result"]["guardrail"]["public_id"]
+        result = runner.invoke(app, ["--data-dir", dd, "get", public_id])
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        assert out["result"]["guardrail"]["public_id"] == public_id
 
 
 class TestListCommand:
@@ -572,6 +590,7 @@ class TestSearchCommand:
         out = _parse(result.output)
         if out["result"]["total"] > 0:
             assert "bm25" in out["result"]["results"][0]["match_sources"]
+            assert out["result"]["results"][0]["public_id"] == "gr-0001"
 
     def test_search_rejects_top_zero(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -962,6 +981,7 @@ class TestRelatedCommand:
         result = runner.invoke(app, ["related", "SOMEID", "--explain"])
         assert result.exit_code == 0
         assert "related returns" in result.output
+        assert "gr-0001" in result.output
 
 
 class TestHelpFlags:
@@ -1062,6 +1082,16 @@ class TestUpdateCommand:
         out = _parse(result.output)
         assert out["result"]["guardrail"]["updated_at"] != original_updated
 
+    def test_update_by_public_id(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        add_result = _parse(runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT).output)
+        public_id = add_result["result"]["guardrail"]["public_id"]
+        patch = json.dumps({"title": "Updated via public ID"})
+        result = runner.invoke(app, ["--data-dir", dd, "update", public_id], input=patch)
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        assert out["result"]["guardrail"]["title"] == "Updated via public ID"
+
     def test_update_active_requires_reference_excerpt(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         gid = _add_guardrail(dd)
@@ -1125,6 +1155,20 @@ class TestRefAddCommand:
         result = runner.invoke(app, ["--data-dir", dd, "ref-add", gid], input="bad json")
         assert result.exit_code == 20  # EXIT_VALIDATION
 
+    def test_ref_add_by_public_id(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        add_result = _parse(runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT).output)
+        public_id = add_result["result"]["guardrail"]["public_id"]
+        ref_input = json.dumps({
+            "ref_type": "adr",
+            "ref_id": "ADR-001",
+            "ref_title": "Managed services decision",
+        })
+        result = runner.invoke(app, ["--data-dir", dd, "ref-add", public_id], input=ref_input)
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        assert out["result"]["reference"]["guardrail_id"] == add_result["result"]["guardrail"]["id"]
+
 
 class TestLinkCommand:
     def test_link_success(self, tmp_path) -> None:
@@ -1185,6 +1229,24 @@ class TestLinkCommand:
         assert len(out["result"]["related"]) == 1
         assert out["result"]["related"][0]["id"] == gid2
 
+    def test_link_accepts_public_ids(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        first = _parse(runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT).output)
+        second = _parse(runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT_2).output)
+        result = runner.invoke(
+            app,
+            [
+                "--data-dir", dd, "link",
+                first["result"]["guardrail"]["public_id"],
+                second["result"]["guardrail"]["public_id"],
+                "--rel", "supports",
+            ],
+        )
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        assert out["result"]["link"]["from_id"] == first["result"]["guardrail"]["id"]
+        assert out["result"]["link"]["to_id"] == second["result"]["guardrail"]["id"]
+
 
 class TestDeprecateCommand:
     def test_deprecate_active(self, tmp_path) -> None:
@@ -1234,6 +1296,15 @@ class TestDeprecateCommand:
             app, ["--data-dir", dd, "deprecate", "NONEXISTENT", "--reason", "Gone"]
         )
         assert result.exit_code == 10  # EXIT_NOT_FOUND
+
+    def test_deprecate_by_public_id(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        add_result = _parse(runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT).output)
+        public_id = add_result["result"]["guardrail"]["public_id"]
+        result = runner.invoke(app, ["--data-dir", dd, "deprecate", public_id, "--reason", "Old"])
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        assert out["result"]["guardrail"]["status"] == "deprecated"
 
 
 class TestSupersedeCommand:
@@ -1290,6 +1361,26 @@ class TestSupersedeCommand:
             app, ["--data-dir", dd, "supersede", old_id, "--by", new_id]
         )
         assert result.exit_code == 12  # EXIT_INVALID_TRANSITION
+
+    def test_supersede_accepts_public_ids(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        old_result = _parse(runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT).output)
+        new_result = _parse(runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT_2).output)
+        result = runner.invoke(
+            app,
+            [
+                "--data-dir", dd, "supersede",
+                old_result["result"]["guardrail"]["public_id"],
+                "--by",
+                new_result["result"]["guardrail"]["public_id"],
+            ],
+        )
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        assert (
+            out["result"]["guardrail"]["superseded_by"]
+            == new_result["result"]["guardrail"]["id"]
+        )
 
 
 class TestStatsCommand:
@@ -1906,6 +1997,7 @@ class TestGuideCommand:
         out = _parse(result.output)
         r = out["result"]
         assert "commands" in r
+        assert "identifier_contract" in r
         assert "provenance_contract" in r
         assert "minimum_evidence" in r
         assert "defaulting_policy" in r
@@ -1970,6 +2062,15 @@ class TestGuideCommand:
         result = runner.invoke(app, ["guide", "--explain"])
         assert result.exit_code == 0
         assert "machine-readable" in result.output
+        assert "gr-0001" in result.output
+
+    def test_guide_documents_public_id_lookup(self) -> None:
+        result = runner.invoke(app, ["guide"])
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        identifier_contract = out["result"]["identifier_contract"]
+        assert identifier_contract["public_id"]["format"] == "gr-0001"
+        assert "accepted anywhere" in identifier_contract["public_id"]["lookup"]
 
     def test_guide_task_add_guardrail_includes_provenance_contract(self) -> None:
         result = runner.invoke(app, ["guide", "--task", "add-guardrail"])

@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - `init` command (functional)
 - Test suite: models, store, index, search, CLI, property-based
 - Documentation: README, PROJECT, ARCHITECTURE, TESTING, CONTRIBUTING, AGENTS
+- Immutable user-facing guardrail IDs in `gr-0001` format, generated at create/import time and accepted anywhere CLI commands take a guardrail identifier
 
 ### Changed
 - Aligned CLI process exit codes with `PRD.md` Section 12 and updated `guide`/README documentation to advertise the same contract
@@ -22,3 +23,5 @@ All notable changes to this project will be documented in this file.
 - Tightened `active` guardrail validation: active records now require an authoritative reference, at least one evidence-bearing `excerpt`, and a non-placeholder owner
 - Documented the neutral placeholder workflow (`unassigned`) for draft records when accountable ownership is not stated by the source
 - Expanded `README.md` with practical taxonomy guidance covering free-form vs controlled `scope`, bootstrap examples, validation behavior, and recommended team workflow
+- Human-facing table, markdown, search, and export surfaces now prefer public IDs while preserving internal ULIDs for storage and relational integrity
+- Markdown exports now include guardrail relationships and avoid duplicating multi-scope guardrails across multiple scope sections

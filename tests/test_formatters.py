@@ -163,6 +163,31 @@ class TestMarkdownFormatter:
         assert "Test guardrail" in output
         assert "Test ADR" in output
 
+    def test_format_export_md_prunes_multiscope_duplicates_and_shows_scope(self) -> None:
+        from archguard.output.markdown import format_export_md
+
+        g = _make_guardrail(scope=["it-platform", "data-platform"])
+        output = format_export_md([g], [])
+        assert output.count("Test guardrail") == 1
+        assert "**Scope:** it-platform, data-platform" in output
+
+    def test_format_export_md_includes_links(self) -> None:
+        from archguard.output.markdown import format_export_md
+
+        first = _make_guardrail(public_id="gr-0001")
+        second = _make_guardrail(
+            id="01HTEST02ABCDEFGHIJKLMNOP",
+            public_id="gr-0002",
+            title="Second guardrail",
+            scope=["data-platform"],
+        )
+        link = _make_link(note="Important dependency")
+        output = format_export_md([first, second], [], [link])
+        assert "**Links:**" in output
+        assert "supports -> `gr-0002`" in output
+        assert "Second guardrail" in output
+        assert "Important dependency" in output
+
     def test_format_export_md_severity_order(self) -> None:
         from archguard.output.markdown import format_export_md
 

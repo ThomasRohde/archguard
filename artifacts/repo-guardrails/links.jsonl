@@ -1,0 +1,6 @@
+{"from_id":"01KK3HVVFK7XRC6WVDZ2B258TM","to_id":"01KK3HVXAAZJADJD6TC5GDEY2V","rel_type":"supports","note":"Derived indexing and maintenance flows depend on stable machine-readable command output."}
+{"from_id":"01KK3HVWDHH0JQ88CH4HY5FSQT","to_id":"01KK3HVXAAZJADJD6TC5GDEY2V","rel_type":"supports","note":"Deterministic runtime behavior reinforces the structured CLI contract."}
+{"from_id":"01KK3HVY86ER0Z6KR92C1DE936","to_id":"01KK3HVXAAZJADJD6TC5GDEY2V","rel_type":"implements","note":"Pydantic validation and orjson serialization make the published envelope concrete."}
+{"from_id":"01KK3HVZ4JF1K7BMMAEEABBK30","to_id":"01KK3HVXAAZJADJD6TC5GDEY2V","rel_type":"supports","note":"Explainable stdin-driven workflows complement machine-readable command responses."}
+{"from_id":"01KK3HW0V0GD5T1BC8XE334NXT","to_id":"01KK3HVY86ER0Z6KR92C1DE936","rel_type":"requires","note":"Quality gates must exercise the shared validation and serialization contract."}
+{"from_id":"01KK3HW00MG897MYYZ43G2RTCA","to_id":"01KK3HVVFK7XRC6WVDZ2B258TM","rel_type":"supports","note":"Preserving history complements the repository source-of-truth model."}

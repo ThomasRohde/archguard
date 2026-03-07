@@ -111,6 +111,10 @@ def hybrid_search(
     conn = get_connection(db_path)
     try:
         query_plan = build_query_plan(query)
+        public_id_by_id = {
+            row["id"]: row["public_id"]
+            for row in conn.execute("SELECT id, public_id FROM guardrails").fetchall()
+        }
 
         # BM25 search
         bm25_results = bm25_search(conn, query)
@@ -142,7 +146,7 @@ def hybrid_search(
         results: list[SearchResult] = []
         for rd in ranked:
             row = conn.execute(
-                "SELECT id, title, severity, status, guidance, scope, applies_to, "
+                "SELECT id, public_id, title, severity, status, guidance, scope, applies_to, "
                 "lifecycle_stage, owner, superseded_by FROM guardrails WHERE id = ?",
                 (rd.doc_id,),
             ).fetchone()
@@ -151,12 +155,12 @@ def hybrid_search(
 
             searchable_text = " ".join(
                 [
-                    row[1],
-                    row[4] or "",
+                    row[2],
                     row[5] or "",
                     row[6] or "",
                     row[7] or "",
                     row[8] or "",
+                    row[9] or "",
                 ]
             )
             matched_clause_count = count_matching_clauses(query_plan, searchable_text)
@@ -177,16 +181,16 @@ def hybrid_search(
                 status_val = filters.get("status")
                 if status_val:
                     if isinstance(status_val, list):
-                        if row[3] not in status_val:
+                        if row[4] not in status_val:
                             continue
-                    elif row[3] != status_val:
+                    elif row[4] != status_val:
                         continue
                 severity_val = filters.get("severity")
-                if isinstance(severity_val, str) and row[2] != severity_val:
+                if isinstance(severity_val, str) and row[3] != severity_val:
                     continue
                 scope_val = filters.get("scope")
                 if scope_val:
-                    row_scope: list[str] = orjson.loads(row[5])
+                    row_scope: list[str] = orjson.loads(row[6])
                     if isinstance(scope_val, list):
                         if not any(s in row_scope for s in scope_val):
                             continue
@@ -194,7 +198,7 @@ def hybrid_search(
                         continue
                 applies_val = filters.get("applies_to")
                 if applies_val:
-                    row_applies: list[str] = orjson.loads(row[6])
+                    row_applies: list[str] = orjson.loads(row[7])
                     if isinstance(applies_val, list):
                         if not any(a in row_applies for a in applies_val):
                             continue
@@ -202,11 +206,11 @@ def hybrid_search(
                         continue
                 lc_val = filters.get("lifecycle_stage")
                 if isinstance(lc_val, str):
-                    row_lc: list[str] = orjson.loads(row[7])
+                    row_lc: list[str] = orjson.loads(row[8])
                     if lc_val not in row_lc:
                         continue
                 owner_val = filters.get("owner")
-                if isinstance(owner_val, str) and row[8] != owner_val:
+                if isinstance(owner_val, str) and row[9] != owner_val:
                     continue
 
             coverage_bonus = (
@@ -215,23 +219,25 @@ def hybrid_search(
                 else 0.0
             )
             score = rd.rrf + coverage_bonus
-            historical = row[3] in HISTORICAL_STATUSES
+            historical = row[4] in HISTORICAL_STATUSES
             if demote_historical and historical:
                 score = max(score - HISTORICAL_SCORE_PENALTY, 0.0)
             score = round(score, 6)
             if score < min_score:
                 continue
 
-            snippet: str = row[4][:150] if row[4] else ""
+            snippet: str = row[5][:150] if row[5] else ""
             sources = match_sources_map.get(rd.doc_id, [])
             results.append(
                 SearchResult(
                     id=row[0],
-                    title=row[1],
-                    severity=row[2],
-                    status=row[3],
+                    public_id=row[1],
+                    title=row[2],
+                    severity=row[3],
+                    status=row[4],
                     historical=historical,
-                    superseded_by=row[9],
+                    superseded_by=row[10],
+                    superseded_by_public_id=public_id_by_id.get(row[10]),
                     score=score,
                     relevance=_relevance_label(score),  # type: ignore[arg-type]
                     match_sources=sources,  # type: ignore[arg-type]

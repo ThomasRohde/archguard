@@ -31,6 +31,7 @@ def sample_guardrail_dict() -> dict:  # type: ignore[type-arg]
     """A valid guardrail dict for testing."""
     return {
         "id": "01HXR00000000000000000TEST",
+        "public_id": "gr-0001",
         "title": "Prefer managed services over self-hosted infrastructure",
         "status": "active",
         "severity": "should",

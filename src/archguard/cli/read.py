@@ -17,6 +17,7 @@ from archguard.cli import (
     state,
     summarize_validation_error,
 )
+from archguard.core.public_ids import find_guardrail
 from archguard.output.json import envelope
 
 DEFAULT_RETRIEVAL_STATUSES = ["draft", "active"]
@@ -56,7 +57,9 @@ def search(
             "search performs hybrid retrieval: BM25 keyword search via FTS5 and cosine similarity "
             "via Model2Vec embeddings. Results are merged using Reciprocal Rank Fusion (RRF). "
             "Returns compact summaries for triage. By default, deprecated and superseded "
-            "guardrails are excluded; pass --include-historical to include them.\n"
+            "guardrails are excluded; pass --include-historical to include them. Search results "
+            "include both the internal ULID and the preferred public ID (for example gr-0001) "
+            "when present.\n"
             "\n"
             "IMPORTANT FOR AGENTS: Always search before creating a guardrail to detect\n"
             "duplicates and overlaps. If search returns a relevant existing guardrail,\n"
@@ -118,7 +121,9 @@ def search(
 
 @app.command()
 def get(
-    guardrail_id: Annotated[str, typer.Argument(help="ULID of the guardrail")],
+    guardrail_id: Annotated[
+        str, typer.Argument(help="Internal ID or public ID of the guardrail")
+    ],
     explain: Annotated[
         bool, typer.Option("--explain", help="Explain what this command does")
     ] = False,
@@ -126,7 +131,9 @@ def get(
     """Get full detail for a guardrail including references and links."""
     if explain:
         sys.stderr.write(
-            "get returns the complete guardrail record with all references and linked guardrails.\n"
+            "get returns the complete guardrail record with all references and linked guardrails. "
+            "You can look up a record by either its internal ULID or its public ID such as "
+            "gr-0001.\n"
         )
         raise SystemExit(0)
 
@@ -134,27 +141,29 @@ def get(
 
     data_dir = require_data_dir("get")
     guardrails = load_guardrails(data_dir)
+    guardrail_map = {g.id: g for g in guardrails}
 
-    guardrail = next((g for g in guardrails if g.id == guardrail_id), None)
+    guardrail = find_guardrail(guardrails, guardrail_id)
     if guardrail is None:
         handle_error("get", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{guardrail_id}' not found")
         return
+    resolved_guardrail_id = guardrail.id
 
     refs_list = load_references(data_dir)
     links_list = load_links(data_dir)
-    refs = [r for r in refs_list if r.guardrail_id == guardrail_id]
+    refs = [r for r in refs_list if r.guardrail_id == resolved_guardrail_id]
     links = [
         lnk
         for lnk in links_list
-        if lnk.from_id == guardrail_id or lnk.to_id == guardrail_id
+        if lnk.from_id == resolved_guardrail_id or lnk.to_id == resolved_guardrail_id
     ]
 
     if state.format == "table":
         from archguard.output.table import format_guardrail_detail
-        sys.stdout.write(format_guardrail_detail(guardrail, refs, links))
+        sys.stdout.write(format_guardrail_detail(guardrail, refs, links, guardrail_map))
     elif state.format == "markdown":
         from archguard.output.markdown import format_guardrail_detail_md
-        sys.stdout.write(format_guardrail_detail_md(guardrail, refs, links))
+        sys.stdout.write(format_guardrail_detail_md(guardrail, refs, links, guardrail_map))
     else:
         ref_dicts = [r.model_dump() for r in refs]
         link_dicts = [lnk.model_dump() for lnk in links]
@@ -168,7 +177,9 @@ def get(
 
 @app.command()
 def related(
-    guardrail_id: Annotated[str, typer.Argument(help="ULID of the guardrail")],
+    guardrail_id: Annotated[
+        str, typer.Argument(help="Internal ID or public ID of the guardrail")
+    ],
     explain: Annotated[
         bool, typer.Option("--explain", help="Explain what this command does")
     ] = False,
@@ -177,7 +188,8 @@ def related(
     if explain:
         sys.stderr.write(
             "related returns all guardrails connected to the given guardrail via links, "
-            "including the relationship type and direction.\n"
+            "including the relationship type and direction. Accepts either the internal ULID "
+            "or a public ID such as gr-0001.\n"
         )
         raise SystemExit(0)
 
@@ -190,21 +202,23 @@ def related(
     links = load_links(data_dir)
 
     # Verify target guardrail exists
-    target = next((g for g in guardrails if g.id == guardrail_id), None)
+    target = find_guardrail(guardrails, guardrail_id)
     if target is None:
         handle_error("related", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{guardrail_id}' not found")
         return
+    resolved_guardrail_id = target.id
 
     # Build a lookup map
     guardrail_map = {g.id: g for g in guardrails}
 
-    related_items: list[dict[str, str]] = []
+    related_items: list[dict[str, str | None]] = []
     for lnk in links:
-        if lnk.from_id == guardrail_id:
+        if lnk.from_id == resolved_guardrail_id:
             other = guardrail_map.get(lnk.to_id)
             if other:
                 related_items.append({
                     "id": other.id,
+                    "public_id": other.public_id,
                     "title": other.title,
                     "status": other.status,
                     "severity": other.severity,
@@ -212,11 +226,12 @@ def related(
                     "direction": "outgoing",
                     "note": lnk.note,
                 })
-        elif lnk.to_id == guardrail_id:
+        elif lnk.to_id == resolved_guardrail_id:
             other = guardrail_map.get(lnk.from_id)
             if other:
                 related_items.append({
                     "id": other.id,
+                    "public_id": other.public_id,
                     "title": other.title,
                     "status": other.status,
                     "severity": other.severity,
@@ -227,7 +242,8 @@ def related(
 
     sys.stdout.write(
         envelope("related", {
-            "guardrail_id": guardrail_id,
+            "guardrail_id": target.id,
+            "guardrail_public_id": target.public_id,
             "related": related_items,
         })
         + "\n"

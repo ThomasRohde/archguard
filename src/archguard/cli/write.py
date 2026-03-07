@@ -15,6 +15,7 @@ from archguard.cli import (
     require_data_dir,
     summarize_validation_error,
 )
+from archguard.core.public_ids import find_guardrail, find_guardrail_index, next_public_id
 from archguard.output.json import envelope
 
 
@@ -129,7 +130,8 @@ def add(
     if explain:
         sys.stderr.write(
             "add reads a guardrail JSON object from stdin, validates it, generates a ULID, "
-            "appends it to guardrails.jsonl, rebuilds the index, and returns the created record.\n"
+            "allocates the next public ID (for example gr-0001), appends it to "
+            "guardrails.jsonl, rebuilds the index, and returns the created record.\n"
             "\n"
             "WHEN TO USE: You have identified an atomic architectural rule from an authoritative\n"
             "source and confirmed (via 'archguard search') that no duplicate exists.\n"
@@ -155,6 +157,11 @@ def add(
             "  - A neutral placeholder such as 'unassigned' is acceptable for draft records.\n"
             "  - status=active is reserved for rules with authoritative evidence and "
             "accountable ownership.\n"
+            "\n"
+            "IDENTIFIERS:\n"
+            "  - New guardrails receive a public ID such as gr-0001 in addition to the "
+            "internal ULID.\n"
+            "  - Subsequent commands accept either identifier when referring to the guardrail.\n"
             "\n"
             "Call 'archguard add --schema' to see the exact input JSON schema.\n"
         )
@@ -226,10 +233,12 @@ def add(
     from datetime import UTC, datetime
 
     guardrail_id = str(ULID())
+    public_id = next_public_id(existing)
     now = datetime.now(UTC).isoformat()
 
     guardrail = Guardrail(
         id=guardrail_id,
+        public_id=public_id,
         title=create.title,
         status=create.status,
         severity=create.severity,
@@ -294,7 +303,9 @@ def add(
 
 @app.command()
 def update(
-    guardrail_id: Annotated[str, typer.Argument(help="ULID of the guardrail to update")],
+    guardrail_id: Annotated[
+        str, typer.Argument(help="Internal ID or public ID of the guardrail to update")
+    ],
     explain: Annotated[
         bool, typer.Option("--explain", help="Explain what this command does")
     ] = False,
@@ -311,6 +322,9 @@ def update(
             "WHEN NOT TO USE:\n"
             "  - Rule is fundamentally different -> create new guardrail and link/supersede.\n"
             "  - You want to set status=superseded -> use the 'supersede' command instead.\n"
+            "\n"
+            "IDENTIFIERS: The target may be referenced by either its internal ULID or public ID "
+            "such as gr-0001.\n"
             "\n"
             "Only provided fields are changed (patch semantics). Omitted fields are untouched.\n"
         )
@@ -363,11 +377,13 @@ def update(
 
     # Find guardrail
     guardrails = load_guardrails(data_dir)
-    idx = next((i for i, g in enumerate(guardrails) if g.id == guardrail_id), None)
+    idx = find_guardrail_index(guardrails, guardrail_id)
 
     if idx is None:
         handle_error("update", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{guardrail_id}' not found")
         return
+    resolved_guardrail = guardrails[idx]
+    resolved_guardrail_id = resolved_guardrail.id
 
     # Merge patch fields
     from datetime import UTC, datetime
@@ -376,11 +392,13 @@ def update(
     from archguard.core.store import load_references
 
     patch_data = patch.model_dump(exclude_none=True)
-    updated_data = guardrails[idx].model_dump()
+    updated_data = resolved_guardrail.model_dump()
     updated_data.update(patch_data)
     updated_data["updated_at"] = datetime.now(UTC).isoformat()
 
-    existing_refs = [r for r in load_references(data_dir) if r.guardrail_id == guardrail_id]
+    existing_refs = [
+        r for r in load_references(data_dir) if r.guardrail_id == resolved_guardrail_id
+    ]
     _enforce_active_requirements(
         "update",
         status=updated_data["status"],
@@ -421,7 +439,7 @@ def update(
 @app.command(name="ref-add")
 def ref_add(
     guardrail_id: Annotated[
-        str, typer.Argument(help="ULID of the guardrail to add a reference to")
+        str, typer.Argument(help="Internal ID or public ID of the guardrail to add a reference to")
     ],
     explain: Annotated[
         bool, typer.Option("--explain", help="Explain what this command does")
@@ -431,7 +449,8 @@ def ref_add(
     if explain:
         sys.stderr.write(
             "ref-add reads a reference JSON from stdin, validates it, appends to references.jsonl, "
-            "and rebuilds the index.\n"
+            "and rebuilds the index. The target guardrail may be specified by internal ULID or "
+            "public ID (for example gr-0001).\n"
             "\n"
             "WHEN TO USE: Attaching an authoritative source (ADR, policy, standard, regulation,\n"
             "pattern, document) to an existing guardrail. Active guardrails should have at least\n"
@@ -472,14 +491,16 @@ def ref_add(
 
     # Verify guardrail exists
     guardrails = load_guardrails(data_dir)
-    if not any(g.id == guardrail_id for g in guardrails):
+    target = find_guardrail(guardrails, guardrail_id)
+    if target is None:
         handle_error("ref-add", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{guardrail_id}' not found")
+    resolved_guardrail_id = target.id
 
     from datetime import UTC, datetime
 
     now = datetime.now(UTC).isoformat()
     ref = Reference(
-        guardrail_id=guardrail_id,
+        guardrail_id=resolved_guardrail_id,
         ref_type=ref_create.ref_type,
         ref_id=ref_create.ref_id,
         ref_title=ref_create.ref_title,
@@ -502,8 +523,10 @@ def ref_add(
 
 @app.command()
 def link(
-    from_id: Annotated[str, typer.Argument(help="ULID of the source guardrail")],
-    to_id: Annotated[str, typer.Argument(help="ULID of the target guardrail")],
+    from_id: Annotated[
+        str, typer.Argument(help="Internal ID or public ID of the source guardrail")
+    ],
+    to_id: Annotated[str, typer.Argument(help="Internal ID or public ID of the target guardrail")],
     rel: Annotated[
         str,
         typer.Option(
@@ -520,7 +543,8 @@ def link(
     if explain:
         sys.stderr.write(
             "link creates a directional relationship between two guardrails "
-            "and appends it to links.jsonl.\n"
+            "and appends it to links.jsonl. Both endpoints may be referenced by internal ULID "
+            "or public ID (for example gr-0001).\n"
             "\n"
             "RELATIONSHIP TYPES:\n"
             "  supports    — A reinforces B (complementary rules).\n"
@@ -551,15 +575,16 @@ def link(
 
     # Verify both guardrails exist
     guardrails = load_guardrails(data_dir)
-    ids = {g.id for g in guardrails}
-    if from_id not in ids:
+    from_guardrail = find_guardrail(guardrails, from_id)
+    if from_guardrail is None:
         handle_error("link", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{from_id}' not found")
-    if to_id not in ids:
+    to_guardrail = find_guardrail(guardrails, to_id)
+    if to_guardrail is None:
         handle_error("link", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{to_id}' not found")
 
     link_record = LinkModel(
-        from_id=from_id,
-        to_id=to_id,
+        from_id=from_guardrail.id,
+        to_id=to_guardrail.id,
         rel_type=rel,  # type: ignore[arg-type]  # validated above
         note=note,
     )
@@ -578,7 +603,9 @@ def link(
 
 @app.command()
 def delete(
-    guardrail_id: Annotated[str, typer.Argument(help="ULID of the guardrail to delete")],
+    guardrail_id: Annotated[
+        str, typer.Argument(help="Internal ID or public ID of the guardrail to delete")
+    ],
     confirm: Annotated[bool, typer.Option("--confirm", help="Confirm deletion")] = False,
     explain: Annotated[
         bool, typer.Option("--explain", help="Explain what this command does")
@@ -589,7 +616,8 @@ def delete(
         sys.stderr.write(
             "delete removes a guardrail from guardrails.jsonl and cleans up "
             "associated references and links. Requires --confirm flag "
-            "(auto-confirmed when LLM=true). Rebuilds the index afterward.\n"
+            "(auto-confirmed when LLM=true). Rebuilds the index afterward. Accepts either "
+            "the internal ULID or a public ID such as gr-0001.\n"
         )
         raise SystemExit(0)
 
@@ -614,29 +642,32 @@ def delete(
     data_dir = require_data_dir("delete")
     guardrails = load_guardrails(data_dir)
 
-    target = next((g for g in guardrails if g.id == guardrail_id), None)
+    target = find_guardrail(guardrails, guardrail_id)
     if target is None:
         handle_error("delete", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{guardrail_id}' not found")
         return
+    resolved_guardrail_id = target.id
 
     # Remove guardrail
-    guardrails = [g for g in guardrails if g.id != guardrail_id]
+    guardrails = [g for g in guardrails if g.id != resolved_guardrail_id]
     rewrite_jsonl(data_dir / "guardrails.jsonl", guardrails)
 
     # Clean up references
     refs = load_references(data_dir)
-    refs_removed = sum(1 for r in refs if r.guardrail_id == guardrail_id)
-    refs = [r for r in refs if r.guardrail_id != guardrail_id]
+    refs_removed = sum(1 for r in refs if r.guardrail_id == resolved_guardrail_id)
+    refs = [r for r in refs if r.guardrail_id != resolved_guardrail_id]
     rewrite_jsonl(data_dir / "references.jsonl", refs)
 
     # Clean up links
     links = load_links(data_dir)
     links_removed = sum(
-        1 for lnk in links if lnk.from_id == guardrail_id or lnk.to_id == guardrail_id
+        1
+        for lnk in links
+        if lnk.from_id == resolved_guardrail_id or lnk.to_id == resolved_guardrail_id
     )
     links = [
         lnk for lnk in links
-        if lnk.from_id != guardrail_id and lnk.to_id != guardrail_id
+        if lnk.from_id != resolved_guardrail_id and lnk.to_id != resolved_guardrail_id
     ]
     rewrite_jsonl(data_dir / "links.jsonl", links)
 
@@ -655,7 +686,9 @@ def delete(
 
 @app.command()
 def deprecate(
-    guardrail_id: Annotated[str, typer.Argument(help="ULID of the guardrail to deprecate")],
+    guardrail_id: Annotated[
+        str, typer.Argument(help="Internal ID or public ID of the guardrail to deprecate")
+    ],
     reason: Annotated[str, typer.Option("--reason", help="Reason for deprecation")],
     explain: Annotated[
         bool, typer.Option("--explain", help="Explain what this command does")
@@ -665,7 +698,8 @@ def deprecate(
     if explain:
         sys.stderr.write(
             "deprecate sets the guardrail's status to 'deprecated' "
-            "and records the reason in metadata.\n"
+            "and records the reason in metadata. Accepts either the internal ULID or a public "
+            "ID such as gr-0001.\n"
         )
         raise SystemExit(0)
 
@@ -676,7 +710,7 @@ def deprecate(
     data_dir = require_data_dir("deprecate")
 
     guardrails = load_guardrails(data_dir)
-    idx = next((i for i, g in enumerate(guardrails) if g.id == guardrail_id), None)
+    idx = find_guardrail_index(guardrails, guardrail_id)
 
     if idx is None:
         handle_error(
@@ -717,8 +751,12 @@ def deprecate(
 
 @app.command()
 def supersede(
-    guardrail_id: Annotated[str, typer.Argument(help="ULID of the guardrail being superseded")],
-    by: Annotated[str, typer.Option("--by", help="ULID of the replacement guardrail")],
+    guardrail_id: Annotated[
+        str, typer.Argument(help="Internal ID or public ID of the guardrail being superseded")
+    ],
+    by: Annotated[
+        str, typer.Option("--by", help="Internal ID or public ID of the replacement guardrail")
+    ],
     explain: Annotated[
         bool, typer.Option("--explain", help="Explain what this command does")
     ] = False,
@@ -728,7 +766,8 @@ def supersede(
         sys.stderr.write(
             "supersede sets superseded_by on the old guardrail, "
             "changes its status to 'superseded', and creates an "
-            "'implements' link from the new guardrail to the old one.\n"
+            "'implements' link from the new guardrail to the old one. Both the old and replacement "
+            "guardrails may be referenced by internal ULID or public ID such as gr-0001.\n"
         )
         raise SystemExit(0)
 
@@ -741,19 +780,19 @@ def supersede(
     data_dir = require_data_dir("supersede")
 
     guardrails = load_guardrails(data_dir)
-    ids = {g.id for g in guardrails}
-
-    if guardrail_id not in ids:
+    target_guardrail = find_guardrail(guardrails, guardrail_id)
+    if target_guardrail is None:
         handle_error(
             "supersede", "ERR_RESOURCE_NOT_FOUND", f"Guardrail '{guardrail_id}' not found",
         )
-    if by not in ids:
+    replacement_guardrail = find_guardrail(guardrails, by)
+    if replacement_guardrail is None:
         handle_error(
             "supersede", "ERR_RESOURCE_NOT_FOUND",
             f"Replacement guardrail '{by}' not found",
         )
 
-    idx = next((i for i, g in enumerate(guardrails) if g.id == guardrail_id), None)
+    idx = find_guardrail_index(guardrails, target_guardrail.id)
 
     if idx is None:
         handle_error(
@@ -773,7 +812,7 @@ def supersede(
 
     updated_data = guardrails[idx].model_dump()
     updated_data["status"] = "superseded"
-    updated_data["superseded_by"] = by
+    updated_data["superseded_by"] = replacement_guardrail.id
     updated_data["updated_at"] = datetime.now(UTC).isoformat()
 
     guardrails[idx] = Guardrail.model_validate(updated_data)
@@ -781,7 +820,10 @@ def supersede(
 
     # Create implements link: new -> old
     link_record = LinkModel(
-        from_id=by, to_id=guardrail_id, rel_type="implements", note="",
+        from_id=replacement_guardrail.id,
+        to_id=target_guardrail.id,
+        rel_type="implements",
+        note="",
     )
     append_jsonl(data_dir / "links.jsonl", link_record)
 

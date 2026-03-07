@@ -37,6 +37,30 @@ ADD_INPUT_2 = json.dumps(
     }
 )
 
+MULTI_SCOPE_INPUT = json.dumps(
+    {
+        "title": "Prefer managed services",
+        "severity": "should",
+        "rationale": "Reduce ops burden",
+        "guidance": "Use managed offerings",
+        "scope": ["it-platform", "data-platform"],
+        "applies_to": ["technology"],
+        "owner": "Platform Team",
+    }
+)
+
+CHANNELS_INPUT = json.dumps(
+    {
+        "title": "Encrypt data at rest",
+        "severity": "must",
+        "rationale": "Security compliance",
+        "guidance": "All stores must use AES-256",
+        "scope": ["channels"],
+        "applies_to": ["data"],
+        "owner": "Security Team",
+    }
+)
+
 llm_runner = CliRunner(env={"LLM": "true"})
 
 
@@ -76,6 +100,7 @@ class TestExportJSON:
         assert result.exit_code == 0
         data = orjson.loads(result.output)
         assert len(data["result"]["guardrails"]) == 2
+        assert data["result"]["guardrails"][0]["public_id"] == "gr-0001"
         assert data["result"]["guardrails"][0]["title"] == "Prefer managed services"
 
     def test_export_filter_severity(self, tmp_path) -> None:
@@ -144,6 +169,7 @@ class TestExportCSV:
         reader = csv.DictReader(io.StringIO(result.output))
         rows = list(reader)
         assert len(rows) == 1
+        assert rows[0]["public_id"] == "gr-0001"
         assert rows[0]["title"] == "Prefer managed services"
         assert rows[0]["scope"] == "it-platform"
         assert rows[0]["severity"] == "should"
@@ -189,6 +215,7 @@ class TestExportMarkdown:
         assert result.exit_code == 0
         assert "# Architecture Guardrails" in result.output
         assert "## Summary" in result.output
+        assert "gr-0001" in result.output
         assert "Prefer managed services" in result.output
 
     def test_export_markdown_grouped_by_scope(self, tmp_path) -> None:
@@ -196,6 +223,40 @@ class TestExportMarkdown:
         _add_guardrail(dd)
         result = runner.invoke(app, ["--data-dir", dd, "export", "--format", "markdown"])
         assert "## it-platform" in result.output
+
+    def test_export_markdown_prunes_duplicate_multiscope_entries(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        _add_guardrail(dd, MULTI_SCOPE_INPUT)
+        result = runner.invoke(app, ["--data-dir", dd, "export", "--format", "markdown"])
+        assert result.exit_code == 0
+        assert result.output.count("Prefer managed services") == 1
+        assert "**Scope:** it-platform, data-platform" in result.output
+
+    def test_export_markdown_includes_links(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        first_id = _add_guardrail(dd, MULTI_SCOPE_INPUT)
+        second_id = _add_guardrail(dd, CHANNELS_INPUT)
+        link_result = runner.invoke(
+            app,
+            [
+                "--data-dir",
+                dd,
+                "link",
+                first_id,
+                second_id,
+                "--rel",
+                "supports",
+                "--note",
+                "Automation depends on the downstream contract",
+            ],
+        )
+        assert link_result.exit_code == 0
+
+        result = runner.invoke(app, ["--data-dir", dd, "export", "--format", "markdown"])
+        assert result.exit_code == 0
+        assert "**Links:**" in result.output
+        assert "supports -> `gr-0002`" in result.output
+        assert "Automation depends on the downstream contract" in result.output
 
 
 class TestExportMarkdownLLM:

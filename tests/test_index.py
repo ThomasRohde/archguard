@@ -45,8 +45,9 @@ class TestBuildIndex:
         build_index(db_path, [g], [], [])
 
         conn = get_connection(db_path)
-        row = conn.execute("SELECT id, title FROM guardrails").fetchone()
+        row = conn.execute("SELECT id, public_id, title FROM guardrails").fetchone()
         assert row["id"] == g.id
+        assert row["public_id"] == g.public_id
         assert row["title"] == g.title
         conn.close()
 
@@ -70,7 +71,12 @@ class TestBuildIndex:
     def test_inserts_links(self, tmp_path: Path, sample_guardrail_dict: dict) -> None:
         db_path = tmp_path / "test.db"
         g1 = Guardrail.model_validate(sample_guardrail_dict)
-        g2_dict = {**sample_guardrail_dict, "id": "01HXR00000000000000000TST2", "title": "Second"}
+        g2_dict = {
+            **sample_guardrail_dict,
+            "id": "01HXR00000000000000000TST2",
+            "public_id": "gr-0002",
+            "title": "Second",
+        }
         g2 = Guardrail.model_validate(g2_dict)
         lnk = Link(from_id=g1.id, to_id=g2.id, rel_type="supports")
         build_index(db_path, [g1, g2], [], [lnk])

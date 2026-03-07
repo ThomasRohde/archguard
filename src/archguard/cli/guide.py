@@ -43,6 +43,7 @@ def _build_guide(data_dir: str = "guardrails") -> dict[str, Any]:
         "defaulting_policy": _defaulting_policy(),
         "vocabulary": _vocabulary(data_dir),
         "field_semantics": _field_semantics(),
+        "identifier_contract": _identifier_contract(),
         "capture_workflow": _capture_workflow(),
         "quality_criteria": _quality_criteria(),
         "anti_patterns": _anti_patterns(),
@@ -189,6 +190,10 @@ def _agent_bootstrap() -> dict[str, Any]:
             "archguard deduplicate     — check corpus-wide similarity",
             "archguard add --schema    — fetch the exact input contract",
         ],
+        "identifier_rule": (
+            "After creation, prefer the public guardrail ID (for example gr-0001) in human-facing "
+            "workflows. CLI commands accept either the public ID or the internal ULID."
+        ),
         "writes_are_sequential": True,
         "prefer_draft": [
             "Set status=draft when the source is not clearly authoritative.",
@@ -301,6 +306,13 @@ def _defaulting_policy() -> dict[str, str]:
 def _field_semantics() -> dict[str, Any]:
     """Domain-level meaning of key fields — not just types, but judgment rules."""
     return {
+        "identifiers": {
+            "id": "Canonical internal ULID used for storage, links, references, and supersession.",
+            "public_id": (
+                "Immutable user-facing guardrail ID in gr-0001 format. Generated automatically "
+                "at create/import time and accepted anywhere a command asks for GUARDRAIL_ID."
+            ),
+        },
         "severity": {
             "must": (
                 "Mandatory rule. Use ONLY when the source is authoritative "
@@ -384,6 +396,25 @@ def _field_semantics() -> dict[str, Any]:
             "Explains why the rule exists. Provides context, "
             "not the rule itself."
         ),
+    }
+
+
+def _identifier_contract() -> dict[str, Any]:
+    """Describe internal vs public guardrail identifiers."""
+    return {
+        "internal_id": {
+            "field": "id",
+            "format": "ULID",
+            "purpose": "Canonical storage and relational identifier.",
+        },
+        "public_id": {
+            "field": "public_id",
+            "format": "gr-0001",
+            "generation": "Assigned automatically at create/import time.",
+            "immutability": True,
+            "lookup": "accepted anywhere a command asks for GUARDRAIL_ID, FROM_ID, TO_ID, or --by.",
+            "display": "Preferred in table, markdown, search, and export output.",
+        },
     }
 
 
@@ -687,7 +718,7 @@ def _commands() -> dict[str, Any]:
             ],
             "stdin": None,
             "result_fields": [
-                "results[]", "total", "query", "filters_applied",
+                "results[] (includes id and public_id)", "total", "query", "filters_applied",
             ],
         },
         "get": {
@@ -695,7 +726,7 @@ def _commands() -> dict[str, Any]:
             "mutates": False,
             "description": (
                 "Get full detail for a guardrail including "
-                "references and links."
+                "references and links. Accepts either an internal ULID or public ID."
             ),
             "args": ["GUARDRAIL_ID"],
             "flags": ["--explain"],
@@ -723,6 +754,7 @@ def _commands() -> dict[str, Any]:
             "mutates": False,
             "description": (
                 "Show linked guardrails with relationship types."
+                " Accepts either an internal ULID or public ID."
             ),
             "args": ["GUARDRAIL_ID"],
             "flags": ["--explain"],
@@ -777,7 +809,7 @@ def _commands() -> dict[str, Any]:
             "mutates": True,
             "description": (
                 "Partially update a guardrail with patch semantics. "
-                "Reads patch JSON from stdin."
+                "Reads patch JSON from stdin. Accepts either an internal ULID or public ID."
             ),
             "args": ["GUARDRAIL_ID"],
             "flags": ["--explain"],
@@ -800,7 +832,7 @@ def _commands() -> dict[str, Any]:
             "mutates": True,
             "description": (
                 "Add a reference/citation to an existing guardrail. "
-                "Reads reference JSON from stdin."
+                "Reads reference JSON from stdin. Accepts either an internal ULID or public ID."
             ),
             "args": ["GUARDRAIL_ID"],
             "flags": ["--explain"],
@@ -817,7 +849,8 @@ def _commands() -> dict[str, Any]:
             "group": "write",
             "mutates": True,
             "description": (
-                "Create a typed relationship between two guardrails."
+                "Create a typed relationship between two guardrails. FROM_ID and TO_ID may be "
+                "internal ULIDs or public IDs."
             ),
             "args": ["FROM_ID", "TO_ID"],
             "flags": [
@@ -834,7 +867,8 @@ def _commands() -> dict[str, Any]:
             "description": (
                 "Permanently delete a guardrail and its "
                 "associated references and links. "
-                "Requires --confirm (auto-confirmed when LLM=true)."
+                "Requires --confirm (auto-confirmed when LLM=true). Accepts either an internal "
+                "ULID or public ID."
             ),
             "args": ["GUARDRAIL_ID"],
             "flags": ["--confirm", "--explain"],
@@ -844,7 +878,10 @@ def _commands() -> dict[str, Any]:
         "deprecate": {
             "group": "write",
             "mutates": True,
-            "description": "Mark a guardrail as deprecated.",
+            "description": (
+                "Mark a guardrail as deprecated. Accepts either an internal ULID "
+                "or public ID."
+            ),
             "args": ["GUARDRAIL_ID"],
             "flags": ["--reason TEXT", "--explain"],
             "stdin": None,
@@ -855,7 +892,8 @@ def _commands() -> dict[str, Any]:
             "mutates": True,
             "description": (
                 "Mark a guardrail as superseded by another, "
-                "creating an 'implements' link."
+                "creating an 'implements' link. Both identifiers may be internal "
+                "ULIDs or public IDs."
             ),
             "args": ["GUARDRAIL_ID"],
             "flags": ["--by REPLACEMENT_ID", "--explain"],
@@ -1115,7 +1153,7 @@ def _examples() -> list[dict[str, Any]]:
         {
             "title": "Get full detail for a guardrail",
             "commands": [
-                "archguard get 01HXYZ...",
+                "archguard get gr-0001",
             ],
         },
         {
@@ -1125,31 +1163,35 @@ def _examples() -> list[dict[str, Any]]:
         },
         {
             "title": "Update a guardrail (patch semantics)",
-            "commands": [posix_update_example],
-            "powershell_commands": [powershell_update_example],
+            "commands": [
+                posix_update_example.replace("01HXYZ...", "gr-0001"),
+            ],
+            "powershell_commands": [
+                powershell_update_example.replace("01HXYZ...", "gr-0001"),
+            ],
         },
         {
             "title": "Add a reference from stdin",
             "commands": [
                 "echo '{\"ref_type\":\"adr\",\"ref_id\":\"ADR-001\","
                 "\"ref_title\":\"Use managed services\"}'"
-                " | archguard ref-add 01HXYZ...",
+                " | archguard ref-add gr-0001",
             ],
-            "powershell_commands": [powershell_ref_add_example],
+            "powershell_commands": [powershell_ref_add_example.replace("01HXYZ...", "gr-0001")],
         },
         {
             "title": "Link two guardrails",
             "commands": [
-                "archguard link 01HXYZ_FROM 01HXYZ_TO"
+                "archguard link gr-0001 gr-0002"
                 " --rel supports --note 'Both reduce risk'",
             ],
         },
         {
             "title": "Deprecate and supersede",
             "commands": [
-                "archguard deprecate 01HXYZ_OLD"
+                "archguard deprecate gr-0001"
                 " --reason 'Replaced by new policy'",
-                "archguard supersede 01HXYZ_OLD --by 01HXYZ_NEW",
+                "archguard supersede gr-0001 --by gr-0002",
             ],
         },
         {
@@ -1266,7 +1308,8 @@ def guide(
             "guide returns a machine-readable JSON document describing "
             "every command, flag, error code, exit code, and usage "
             "example. An agent calls this once to bootstrap zero-shot "
-            "CLI usage.\n"
+            "CLI usage. It also documents the identifier contract, including public IDs such as "
+            "gr-0001.\n"
             "\n"
             "Use --task to get a compact subset for a specific workflow:\n"
             "  --task add-guardrail    Field contract, vocabulary, examples, anti-patterns\n"

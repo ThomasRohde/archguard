@@ -9,6 +9,7 @@ import orjson
 from pydantic import BaseModel
 
 from archguard.core.models import Guardrail, Link, Reference
+from archguard.core.public_ids import find_guardrail, find_guardrail_index, next_public_id
 
 
 def read_jsonl[T: BaseModel](path: Path, model: type[T]) -> list[T]:
@@ -51,6 +52,21 @@ def load_taxonomy(data_dir: Path) -> list[str]:
 def load_guardrails(data_dir: Path) -> list[Guardrail]:
     """Load all guardrails from the data directory."""
     return read_jsonl(data_dir / "guardrails.jsonl", Guardrail)
+
+
+def allocate_guardrail_public_id(data_dir: Path) -> str:
+    """Allocate the next immutable public guardrail ID for the repository."""
+    return next_public_id(load_guardrails(data_dir))
+
+
+def resolve_guardrail(data_dir: Path, identifier: str) -> Guardrail | None:
+    """Resolve a guardrail by internal ULID or public ID."""
+    return find_guardrail(load_guardrails(data_dir), identifier)
+
+
+def resolve_guardrail_index(data_dir: Path, identifier: str) -> int | None:
+    """Resolve a guardrail index by internal ULID or public ID."""
+    return find_guardrail_index(load_guardrails(data_dir), identifier)
 
 
 def load_references(data_dir: Path) -> list[Reference]:

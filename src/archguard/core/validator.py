@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from archguard.core.models import Guardrail, Reference
+from archguard.core.public_ids import display_guardrail_id
 from archguard.core.store import load_guardrails, load_links, load_references, load_taxonomy
 
 # ---------------------------------------------------------------------------
@@ -108,7 +109,7 @@ def check_active_guardrail_requirements(
         return []
 
     issues: list[str] = []
-    gid = guardrail.id[:8]
+    gid = display_guardrail_id(guardrail)
 
     if not references:
         issues.append(
@@ -141,7 +142,7 @@ def check_severity_consistency(guardrail: Guardrail) -> list[str]:
             match = pattern.search(text)
             if match and not _is_metalinguistic_keyword_use(text, match.start(), match.end()):
                 warnings.append(
-                    f"Guardrail {guardrail.id[:8]} ({guardrail.severity}): "
+                    f"Guardrail {display_guardrail_id(guardrail)} ({guardrail.severity}): "
                     f"{field_name} contains '{match.group()}' "
                     f"(conflicting {label} language)"
                 )
@@ -181,7 +182,7 @@ def check_authoring_quality(
     semantically weak. Designed to help weaker models self-correct.
     """
     warnings: list[str] = []
-    gid = guardrail.id[:8]
+    gid = display_guardrail_id(guardrail)
 
     # Vague title: multi-sentence, or contains weak verbs
     if ". " in guardrail.title or "? " in guardrail.title:
@@ -290,13 +291,22 @@ def validate_corpus(data_dir: Path) -> ValidationResult:
                 result.errors.append(f"Duplicate guardrail ID: {gid}")
             seen.add(gid)
 
+    public_ids = [g.public_id for g in guardrails if g.public_id is not None]
+    if len(public_ids) != len(set(public_ids)):
+        seen_public_ids: set[str] = set()
+        for public_id in public_ids:
+            if public_id in seen_public_ids:
+                result.errors.append(f"Duplicate public guardrail ID: {public_id}")
+            seen_public_ids.add(public_id)
+
     # Validate scope against taxonomy
     if taxonomy:
         for g in guardrails:
             for s in g.scope:
                 if s not in taxonomy:
                     result.errors.append(
-                        f"Guardrail {g.id}: scope '{s}' not in taxonomy. Allowed: {taxonomy}"
+                        f"Guardrail {display_guardrail_id(g)}: scope '{s}' not in "
+                        f"taxonomy. Allowed: {taxonomy}"
                     )
 
     # Load and check references
