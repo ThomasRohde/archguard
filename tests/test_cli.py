@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
 import orjson
 from typer.testing import CliRunner
 
@@ -110,6 +111,16 @@ class TestInitCommand:
         result = runner.invoke(app, ["init", "--explain"])
         assert result.exit_code == 0
         assert "init creates" in result.output
+
+
+class TestRepositoryValidation:
+    def test_missing_data_dir_is_an_error(self, tmp_path) -> None:
+        missing = tmp_path / "missing"
+        result = runner.invoke(app, ["--data-dir", str(missing), "list"])
+        assert result.exit_code == 50
+        out = _parse(result.output)
+        assert out["ok"] is False
+        assert out["errors"][0]["code"] == "ERR_IO_FILE_NOT_FOUND"
 
 
 class TestBuildCommand:
@@ -436,6 +447,57 @@ class TestSearchCommand:
         if out["result"]["total"] > 0:
             assert "bm25" in out["result"]["results"][0]["match_sources"]
 
+    def test_search_rejects_top_zero(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        result = runner.invoke(app, ["--data-dir", dd, "search", "managed", "--top", "0"])
+        assert result.exit_code == 10
+        out = _parse(result.output)
+        assert out["errors"][0]["code"] == "ERR_VALIDATION_INPUT"
+
+    def test_search_managed_kafka_surfaces_broader_messaging_rule(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        _add_guardrail(
+            dd,
+            json.dumps(
+                {
+                    "title": "Use managed Kafka offerings instead of self-hosted clusters",
+                    "severity": "should",
+                    "rationale": "Managed Kafka reduces cluster operations.",
+                    "guidance": (
+                        "Prefer platform-managed Kafka services over "
+                        "self-hosted Kafka clusters."
+                    ),
+                    "scope": ["it-platform"],
+                    "applies_to": ["technology"],
+                    "owner": "Platform Team",
+                }
+            ),
+        )
+        _add_guardrail(
+            dd,
+            json.dumps(
+                {
+                    "title": "Prefer managed messaging services over self-hosted brokers",
+                    "severity": "should",
+                    "rationale": "Managed messaging reduces broker operations.",
+                    "guidance": (
+                        "Use cloud-managed messaging platforms unless a documented "
+                        "exception is approved."
+                    ),
+                    "scope": ["it-platform"],
+                    "applies_to": ["technology"],
+                    "owner": "Platform Team",
+                }
+            ),
+        )
+        _add_guardrail(dd, ADD_INPUT_2)
+
+        result = runner.invoke(app, ["--data-dir", dd, "search", "managed kafka"])
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        titles = [r["title"] for r in out["result"]["results"]]
+        assert "Prefer managed messaging services over self-hosted brokers" in titles
+
 
 class TestCheckCommand:
     def test_check_basic(self, tmp_path) -> None:
@@ -486,6 +548,54 @@ class TestCheckCommand:
         assert result.exit_code == 0
         out = _parse(result.output)
         assert out["result"]["context"]["decision"] == "Use managed database"
+
+    def test_check_surfaces_broader_messaging_guardrail(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        _add_guardrail(
+            dd,
+            json.dumps(
+                {
+                    "title": "Prefer managed messaging services over self-hosted brokers",
+                    "severity": "should",
+                    "rationale": "Managed messaging reduces broker operations.",
+                    "guidance": (
+                        "Use cloud-managed messaging platforms unless a documented "
+                        "exception is approved."
+                    ),
+                    "scope": ["it-platform"],
+                    "applies_to": ["technology"],
+                    "owner": "Platform Team",
+                }
+            ),
+        )
+        _add_guardrail(
+            dd,
+            json.dumps(
+                {
+                    "title": "Encrypt data at rest with platform-managed keys",
+                    "severity": "must",
+                    "rationale": "Protect stored data.",
+                    "guidance": "Use encryption at rest with provider-managed keys.",
+                    "scope": ["data-platform"],
+                    "applies_to": ["data"],
+                    "owner": "Security Team",
+                }
+            ),
+        )
+
+        context = json.dumps(
+            {
+                "decision": "Use self-hosted Kafka for event streaming",
+                "scope": ["it-platform"],
+                "applies_to": ["technology"],
+                "tags": ["kafka", "self-hosted"],
+            }
+        )
+        result = runner.invoke(app, ["--data-dir", dd, "check"], input=context)
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        titles = [match["title"] for match in out["result"]["matches"]]
+        assert "Prefer managed messaging services over self-hosted brokers" in titles
 
 
 class TestRelatedCommand:
@@ -1138,7 +1248,7 @@ class TestDeduplicateCommand:
         out = _parse(result.output)
         assert out["ok"] is True
         assert out["result"]["total"] >= 1
-        assert out["result"]["pairs"][0]["method"] in ("jaccard", "hybrid")
+        assert out["result"]["pairs"][0]["method"] in ("lexical", "hybrid")
 
     def test_deduplicate_default_threshold_catches_near_duplicate(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -1168,6 +1278,54 @@ class TestDeduplicateCommand:
         assert out["ok"] is True
         assert out["result"]["threshold"] == 0.8
         assert out["result"]["total"] >= 1
+
+    def test_deduplicate_ignores_embedding_only_false_positive(self, tmp_path, monkeypatch) -> None:
+        dd = _init_dir(tmp_path)
+        _add_guardrail(
+            dd,
+            json.dumps(
+                {
+                    "title": "Prefer managed messaging services over self-hosted brokers",
+                    "severity": "should",
+                    "rationale": "Managed messaging reduces broker operations.",
+                    "guidance": (
+                        "Use cloud-managed messaging platforms unless a documented "
+                        "exception is approved."
+                    ),
+                    "scope": ["it-platform"],
+                    "applies_to": ["technology"],
+                    "owner": "Platform Team",
+                }
+            ),
+        )
+        _add_guardrail(
+            dd,
+            json.dumps(
+                {
+                    "title": "Encrypt data at rest with platform-managed keys",
+                    "severity": "must",
+                    "rationale": "Protect stored data.",
+                    "guidance": "Use encryption at rest with provider-managed keys.",
+                    "scope": ["data-platform"],
+                    "applies_to": ["data"],
+                    "owner": "Security Team",
+                }
+            ),
+        )
+
+        monkeypatch.setattr("archguard.core.embeddings.try_load_model", lambda _data_dir: object())
+
+        def _fake_embed_guardrail(_model, guardrail):
+            if "messaging" in guardrail.title.lower():
+                return np.array([1.0, 0.0], dtype=np.float32)
+            return np.array([0.995, 0.005], dtype=np.float32)
+
+        monkeypatch.setattr("archguard.core.embeddings.embed_guardrail", _fake_embed_guardrail)
+
+        result = runner.invoke(app, ["--data-dir", dd, "deduplicate", "--threshold", "0.5"])
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        assert out["result"]["total"] == 0
 
     def test_deduplicate_explain(self) -> None:
         result = runner.invoke(app, ["deduplicate", "--explain"])
@@ -1289,6 +1447,27 @@ class TestGuideCommand:
         assert "concurrency" in r
         assert "schema_version" in r
         assert "version" in r
+
+    def test_guide_examples_include_powershell_stdin_examples(self) -> None:
+        result = runner.invoke(app, ["guide"])
+        out = _parse(result.output)
+        examples = out["result"]["examples"]
+        stdin_examples = [
+            example
+            for example in examples
+            if example["title"] in {
+                "Add a guardrail",
+                "Check a proposed decision against the corpus",
+                "Update a guardrail (patch semantics)",
+            }
+        ]
+        assert stdin_examples
+        assert all("powershell_commands" in example for example in stdin_examples)
+
+    def test_help_includes_powershell_examples(self) -> None:
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "Get-Content" in result.output
 
     def test_guide_lists_all_commands(self) -> None:
         result = runner.invoke(app, ["guide"])

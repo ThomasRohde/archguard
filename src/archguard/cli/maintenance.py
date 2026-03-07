@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 import sys
+from collections import Counter
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, cast
 
 import typer
@@ -13,6 +15,8 @@ from archguard.cli import (
     emit_index_build_notice,
     ensure_supported_format,
     handle_error,
+    require_data_dir,
+    state,
     summarize_validation_error,
 )
 from archguard.core.models import Guardrail
@@ -33,14 +37,9 @@ def stats(
         )
         raise SystemExit(0)
 
-    from collections import Counter
-    from datetime import UTC, datetime
-    from pathlib import Path
-
-    from archguard.cli import state
     from archguard.core.store import load_guardrails
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("stats")
     guardrails = load_guardrails(data_dir)
 
     by_status: dict[str, int] = Counter()
@@ -93,16 +92,10 @@ def review_due(
         )
         raise SystemExit(0)
 
-    from datetime import UTC, datetime
-    from pathlib import Path
-
-    from archguard.cli import state
     from archguard.core.store import load_guardrails
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("review-due")
     guardrails = load_guardrails(data_dir)
-
-    from datetime import timedelta
 
     default_cutoff = (datetime.now(UTC) + timedelta(days=30)).strftime("%Y-%m-%d")
     cutoff = before if before is not None else default_cutoff
@@ -147,12 +140,9 @@ def deduplicate(
 
     ensure_supported_format("deduplicate", "json")
 
-    from pathlib import Path
-
-    from archguard.cli import state
     from archguard.core.store import load_guardrails
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("deduplicate")
     guardrails = load_guardrails(data_dir)
 
     if len(guardrails) < 2:
@@ -161,7 +151,7 @@ def deduplicate(
         )
         return
 
-    pairs: list[dict[str, str | float]] = []
+    pairs: list[dict[str, Any]] = []
 
     def _make_pair(
         ga: Guardrail,
@@ -170,21 +160,26 @@ def deduplicate(
         method: str,
         *,
         lexical_similarity: float | None = None,
+        title_similarity: float | None = None,
         embedding_similarity: float | None = None,
-    ) -> dict[str, str | float]:
-        pair: dict[str, str | float] = {
+        shared_terms: list[str] | None = None,
+    ) -> dict[str, Any]:
+        pair: dict[str, Any] = {
             "id_a": ga.id, "title_a": ga.title,
             "id_b": gb.id, "title_b": gb.title,
             "similarity": round(sim, 3), "method": method,
         }
         if lexical_similarity is not None:
             pair["lexical_similarity"] = round(lexical_similarity, 3)
+        if title_similarity is not None:
+            pair["title_similarity"] = round(title_similarity, 3)
         if embedding_similarity is not None:
             pair["embedding_similarity"] = round(embedding_similarity, 3)
+        if shared_terms:
+            pair["shared_terms"] = shared_terms
         return pair
 
-    def _token_set(guardrail: Guardrail) -> set[str]:
-        text = f"{guardrail.title} {guardrail.guidance} {guardrail.rationale}".lower()
+    def _token_set(text: str) -> set[str]:
         return set(re.findall(r"[a-z0-9]+", text))
 
     def _jaccard_similarity(left: set[str], right: set[str]) -> float:
@@ -193,10 +188,27 @@ def deduplicate(
             return 0.0
         return len(left & right) / union
 
+    def _duplicate_score(
+        lexical_similarity: float,
+        title_similarity: float,
+        embedding_similarity: float | None,
+    ) -> float:
+        score = 0.55 * lexical_similarity + 0.25 * title_similarity
+        if embedding_similarity is not None:
+            score += 0.2 * embedding_similarity
+            if embedding_similarity >= 0.85 and lexical_similarity >= 0.25:
+                score += 0.1
+        if lexical_similarity >= 0.45:
+            score += 0.15
+        if title_similarity >= 0.45:
+            score += 0.1
+        return min(score, 1.0)
+
     # Try embedding-based similarity
     from archguard.core.embeddings import try_load_model
     model = try_load_model(data_dir)
-    token_sets = [_token_set(g) for g in guardrails]
+    token_sets = [_token_set(f"{g.title} {g.guidance} {g.rationale}") for g in guardrails]
+    title_token_sets = [_token_set(g.title) for g in guardrails]
 
     if model is not None:
         from archguard.core.embeddings import cosine_similarity, embed_guardrail
@@ -204,8 +216,13 @@ def deduplicate(
         for i in range(len(guardrails)):
             for j in range(i + 1, len(guardrails)):
                 lexical_similarity = _jaccard_similarity(token_sets[i], token_sets[j])
+                title_similarity = _jaccard_similarity(title_token_sets[i], title_token_sets[j])
                 embedding_similarity = cosine_similarity(embeddings[i], embeddings[j])
-                sim = max(embedding_similarity, lexical_similarity)
+                sim = _duplicate_score(
+                    lexical_similarity,
+                    title_similarity,
+                    embedding_similarity,
+                )
                 if sim >= threshold:
                     pairs.append(
                         _make_pair(
@@ -214,16 +231,30 @@ def deduplicate(
                             sim,
                             "hybrid",
                             lexical_similarity=lexical_similarity,
+                            title_similarity=title_similarity,
                             embedding_similarity=embedding_similarity,
+                            shared_terms=sorted(token_sets[i] & token_sets[j])[:8],
                         )
                     )
     else:
-        # Fallback: Jaccard similarity on normalized word sets.
+        # Fallback: combine body/title overlap without embeddings.
         for i in range(len(guardrails)):
             for j in range(i + 1, len(guardrails)):
-                sim = _jaccard_similarity(token_sets[i], token_sets[j])
+                lexical_similarity = _jaccard_similarity(token_sets[i], token_sets[j])
+                title_similarity = _jaccard_similarity(title_token_sets[i], title_token_sets[j])
+                sim = _duplicate_score(lexical_similarity, title_similarity, None)
                 if sim >= threshold:
-                    pairs.append(_make_pair(guardrails[i], guardrails[j], sim, "jaccard"))
+                    pairs.append(
+                        _make_pair(
+                            guardrails[i],
+                            guardrails[j],
+                            sim,
+                            "lexical",
+                            lexical_similarity=lexical_similarity,
+                            title_similarity=title_similarity,
+                            shared_terms=sorted(token_sets[i] & token_sets[j])[:8],
+                        )
+                    )
 
     pairs.sort(key=lambda p: p["similarity"], reverse=True)
 
@@ -259,7 +290,6 @@ def import_guardrails(
     from pydantic import ValidationError
     from ulid import ULID
 
-    from archguard.cli import state
     from archguard.core.models import Guardrail, GuardrailImport
     from archguard.core.store import load_guardrails, load_taxonomy, rewrite_jsonl
 
@@ -274,7 +304,7 @@ def import_guardrails(
             f"Unsupported file extension: {ext}. Use .json or .csv",
         )
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("import")
     guardrails = load_guardrails(data_dir)
     taxonomy = load_taxonomy(data_dir)
     by_id = {g.id: g for g in guardrails}

@@ -13,6 +13,7 @@ from archguard.cli import (
     emit_index_build_notice,
     ensure_supported_format,
     handle_error,
+    require_data_dir,
     state,
     summarize_validation_error,
 )
@@ -55,11 +56,13 @@ def search(
 
     if not query.strip():
         handle_error("search", "ERR_VALIDATION_INPUT", "Search query must not be empty")
+    if top < 1:
+        handle_error("search", "ERR_VALIDATION_INPUT", "--top must be at least 1")
 
     from archguard.core.index import ensure_index
     from archguard.core.search import hybrid_search
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("search")
     emit_index_build_notice("search", data_dir)
     db_path = ensure_index(data_dir)
 
@@ -105,7 +108,7 @@ def get(
 
     from archguard.core.store import load_guardrails, load_links, load_references
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("get")
     guardrails = load_guardrails(data_dir)
 
     guardrail = next((g for g in guardrails if g.id == guardrail_id), None)
@@ -158,7 +161,7 @@ def related(
 
     from archguard.core.store import load_guardrails, load_links
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("related")
     guardrails = load_guardrails(data_dir)
     links = load_links(data_dir)
 
@@ -238,7 +241,10 @@ def list_guardrails(
 
     from archguard.core.store import load_guardrails
 
-    data_dir = Path(state.data_dir)
+    if top < 1:
+        handle_error("list", "ERR_VALIDATION_INPUT", "--top must be at least 1")
+
+    data_dir = require_data_dir("list")
     guardrails = load_guardrails(data_dir)
 
     # Apply filters
@@ -321,7 +327,7 @@ def check(
     from archguard.core.models import CheckContext
     from archguard.core.search import hybrid_search
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("check")
 
     # Read context from stdin
     raw = sys.stdin.read()

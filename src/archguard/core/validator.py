@@ -47,6 +47,18 @@ _CONFLICTING: dict[str, list[tuple[re.Pattern[str], str]]] = {
 }
 
 _TEXT_FIELDS = ("guidance", "rationale", "exceptions", "consequences")
+_NORMATIVE_RE = re.compile(
+    r"\b(must|shall|should|may|required|recommended)\b", re.IGNORECASE,
+)
+_IMPERATIVE_GUIDANCE_RE = re.compile(
+    (
+        r"^\s*(do\s+not|don't|never|always|only|avoid|prefer|use|adopt|configure|"
+        r"enable|disable|encrypt|rotate|store|run|deploy|route|document|approve|"
+        r"require|validate|authenticate|authorize|restrict|pin|separate|emit|log|"
+        r"keep|treat)\b"
+    ),
+    re.IGNORECASE,
+)
 
 
 def check_severity_consistency(guardrail: Guardrail) -> list[str]:
@@ -99,13 +111,13 @@ def check_authoring_quality(
         )
 
     # Guidance missing normative language
-    _NORMATIVE_RE = re.compile(
-        r"\b(must|shall|should|may|required|recommended)\b", re.IGNORECASE,
-    )
-    if not _NORMATIVE_RE.search(guardrail.guidance):
+    if not (
+        _NORMATIVE_RE.search(guardrail.guidance)
+        or _IMPERATIVE_GUIDANCE_RE.search(guardrail.guidance)
+    ):
         warnings.append(
             f"Guardrail {gid}: guidance contains no normative language "
-            f"(must/should/may). State the rule clearly."
+            f"(RFC 2119 keywords or imperative rule wording). State the rule clearly."
         )
 
     # Rationale repeats guidance (high overlap)

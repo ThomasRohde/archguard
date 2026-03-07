@@ -5,12 +5,11 @@ from __future__ import annotations
 import csv
 import io
 import sys
-from pathlib import Path
 from typing import Annotated
 
 import typer
 
-from archguard.cli import app, handle_error, state
+from archguard.cli import app, handle_error, require_data_dir
 from archguard.output.json import envelope, is_llm_mode
 
 
@@ -37,7 +36,7 @@ def export(
 
     from archguard.core.store import load_guardrails
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("export")
     guardrails = load_guardrails(data_dir)
 
     # Apply filters

@@ -8,7 +8,13 @@ from typing import Annotated
 
 import typer
 
-from archguard.cli import app, emit_index_build_notice, ensure_supported_format, state
+from archguard.cli import (
+    app,
+    emit_index_build_notice,
+    ensure_supported_format,
+    require_data_dir,
+    state,
+)
 from archguard.output.json import envelope
 
 
@@ -28,7 +34,8 @@ def init(
         sys.stderr.write(
             "init creates the guardrails/ data directory with empty JSONL files, "
             "a taxonomy.json, and a .gitignore. The embedding model is bundled "
-            "with the package — no download needed.\n"
+            "with the package — no download needed. The SQLite index and embeddings "
+            "are built lazily on the first add/search/build operation.\n"
         )
         raise SystemExit(0)
     if schema:
@@ -109,7 +116,7 @@ def build(
     from archguard.core.index import build_index
     from archguard.core.store import load_guardrails, load_links, load_references
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("build")
     db_path = data_dir / ".guardrails.db"
 
     emit_index_build_notice("build", data_dir, explicit=True)
@@ -175,7 +182,7 @@ def validate(
     from archguard.core.validator import validate_corpus
     from archguard.output.json import EXIT_VALIDATION
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("validate")
     result = validate_corpus(data_dir)
 
     if result.ok:

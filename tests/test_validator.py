@@ -6,7 +6,8 @@ from pathlib import Path
 
 import orjson
 
-from archguard.core.validator import validate_corpus
+from archguard.core.models import Guardrail
+from archguard.core.validator import check_authoring_quality, validate_corpus
 
 
 class TestValidateCorpusClean:
@@ -31,6 +32,21 @@ class TestValidateCorpusClean:
         result = validate_corpus(tmp_data_dir)
         assert result.ok
         assert any("status is 'active' but no references found" in w for w in result.warnings)
+
+    def test_imperative_guidance_does_not_trigger_normative_warning(
+        self, sample_guardrail_dict: dict
+    ) -> None:
+        guardrail = Guardrail.model_validate(
+            {
+                **sample_guardrail_dict,
+                "guidance": (
+                    "Use cloud-managed messaging platforms unless a documented "
+                    "exception is approved."
+                ),
+            }
+        )
+        warnings = check_authoring_quality(guardrail, references=[object()])  # type: ignore[list-item]
+        assert all("guidance contains no normative language" not in w for w in warnings)
 
 
 class TestValidateCorpusErrors:

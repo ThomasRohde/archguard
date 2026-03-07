@@ -112,6 +112,94 @@ def _build_test_index(tmp_path: Path) -> Path:
     return db_path
 
 
+def _build_feedback_index(tmp_path: Path) -> Path:
+    """Build a test index mirroring the feedback retrieval cases."""
+    import orjson
+
+    data_dir = tmp_path / "feedback_guardrails"
+    data_dir.mkdir()
+    (data_dir / "references.jsonl").touch()
+    (data_dir / "links.jsonl").touch()
+    (data_dir / "taxonomy.json").write_bytes(
+        orjson.dumps({"scope": ["it-platform", "data-platform"]})
+    )
+
+    guardrails_data = [
+        {
+            "id": "01TEST_KAFKA_SPECIFIC000001",
+            "title": "Use managed Kafka offerings instead of self-hosted clusters",
+            "status": "active",
+            "severity": "should",
+            "rationale": "Managed Kafka reduces cluster operations.",
+            "guidance": "Prefer platform-managed Kafka services over self-hosted Kafka clusters.",
+            "exceptions": "",
+            "consequences": "",
+            "scope": ["it-platform"],
+            "applies_to": ["technology"],
+            "lifecycle_stage": ["build"],
+            "owner": "Platform Team",
+            "review_date": None,
+            "superseded_by": None,
+            "created_at": "2025-06-15T10:30:00Z",
+            "updated_at": "2025-06-15T10:30:00Z",
+            "metadata": {},
+        },
+        {
+            "id": "01TEST_MANAGED_MSG00000002",
+            "title": "Prefer managed messaging services over self-hosted brokers",
+            "status": "active",
+            "severity": "should",
+            "rationale": "Managed messaging reduces broker operations.",
+            "guidance": (
+                "Use cloud-managed messaging platforms unless a documented "
+                "exception is approved."
+            ),
+            "exceptions": "",
+            "consequences": "",
+            "scope": ["it-platform"],
+            "applies_to": ["technology"],
+            "lifecycle_stage": ["build"],
+            "owner": "Platform Team",
+            "review_date": None,
+            "superseded_by": None,
+            "created_at": "2025-06-15T10:30:00Z",
+            "updated_at": "2025-06-15T10:30:00Z",
+            "metadata": {},
+        },
+        {
+            "id": "01TEST_ENCRYPT_KEYS0000003",
+            "title": "Encrypt data at rest with platform-managed keys",
+            "status": "active",
+            "severity": "must",
+            "rationale": "Protect stored data.",
+            "guidance": "Use encryption at rest with provider-managed keys.",
+            "exceptions": "",
+            "consequences": "",
+            "scope": ["data-platform"],
+            "applies_to": ["data"],
+            "lifecycle_stage": ["operate"],
+            "owner": "Security Team",
+            "review_date": None,
+            "superseded_by": None,
+            "created_at": "2025-06-15T10:30:00Z",
+            "updated_at": "2025-06-15T10:30:00Z",
+            "metadata": {},
+        },
+    ]
+
+    with (data_dir / "guardrails.jsonl").open("wb") as f:
+        for g in guardrails_data:
+            f.write(orjson.dumps(g) + b"\n")
+
+    from archguard.core.index import build_index
+    from archguard.core.models import Guardrail
+
+    db_path = data_dir / ".guardrails.db"
+    models = [Guardrail(**g) for g in guardrails_data]
+    build_index(db_path, models, [], [])
+    return db_path
+
+
 class TestBM25Search:
     def test_matches_keyword(self, tmp_path) -> None:
         db_path = _build_test_index(tmp_path)
@@ -228,3 +316,25 @@ class TestHybridSearch:
         results, total = hybrid_search(db_path, "xyznotfound", model=None)
         assert total == 0
         assert results == []
+
+    def test_managed_kafka_surfaces_broader_messaging_rule(self, tmp_path) -> None:
+        db_path = _build_feedback_index(tmp_path)
+        results, _ = hybrid_search(db_path, "managed kafka", model=None)
+        doc_ids = [r.id for r in results]
+        assert "01TEST_MANAGED_MSG00000002" in doc_ids
+
+    def test_self_hosted_kafka_decision_surfaces_broader_messaging_rule(self, tmp_path) -> None:
+        db_path = _build_feedback_index(tmp_path)
+        results, _ = hybrid_search(
+            db_path,
+            "Use self-hosted Kafka for event streaming kafka self-hosted",
+            model=None,
+        )
+        doc_ids = [r.id for r in results]
+        assert "01TEST_MANAGED_MSG00000002" in doc_ids
+
+    def test_low_coverage_noise_is_filtered_from_multi_term_queries(self, tmp_path) -> None:
+        db_path = _build_feedback_index(tmp_path)
+        results, _ = hybrid_search(db_path, "managed kafka", model=None)
+        doc_ids = [r.id for r in results]
+        assert "01TEST_ENCRYPT_KEYS0000003" not in doc_ids

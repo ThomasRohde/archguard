@@ -13,6 +13,7 @@ import orjson
 
 from archguard.core.embeddings import blob_to_embedding, cosine_similarity
 from archguard.core.models import SearchResult
+from archguard.core.search_terms import build_query_plan, count_matching_clauses
 
 RRF_K = 60
 
@@ -42,11 +43,14 @@ class RankedDoc:
 
 def bm25_search(conn: sqlite3.Connection, query: str, limit: int = 100) -> list[tuple[str, int]]:
     """Execute FTS5 MATCH query and return [(doc_id, rank_position)] (1-indexed)."""
+    plan = build_query_plan(query)
+    if not plan.fts_query:
+        return []
     try:
         rows = conn.execute(
             "SELECT id, rank FROM guardrails g JOIN guardrails_fts f ON g.rowid = f.rowid "
             "WHERE guardrails_fts MATCH ? ORDER BY f.rank LIMIT ?",
-            (query, limit),
+            (plan.fts_query, limit),
         ).fetchall()
     except sqlite3.OperationalError:
         return []
@@ -102,8 +106,11 @@ def hybrid_search(
 
     conn = get_connection(db_path)
     try:
+        query_plan = build_query_plan(query)
+
         # BM25 search
         bm25_results = bm25_search(conn, query)
+        bm25_count = len(bm25_results)
         match_sources_map: dict[str, list[str]] = {}
         for doc_id, _ in bm25_results:
             match_sources_map.setdefault(doc_id, []).append("bm25")
@@ -136,6 +143,29 @@ def hybrid_search(
                 (rd.doc_id,),
             ).fetchone()
             if row is None:
+                continue
+
+            searchable_text = " ".join(
+                [
+                    row[1],
+                    row[4] or "",
+                    row[5] or "",
+                    row[6] or "",
+                    row[7] or "",
+                    row[8] or "",
+                ]
+            )
+            matched_clause_count = count_matching_clauses(query_plan, searchable_text)
+            total_clauses = len(query_plan.clauses)
+
+            if (
+                rd.bm25_rank is not None
+                and total_clauses > 1
+                and bm25_count >= 2
+                and matched_clause_count < 2
+            ):
+                continue
+            if rd.bm25_rank is None and total_clauses > 1 and bm25_count >= 2:
                 continue
 
             # Apply post-ranking filters
@@ -171,7 +201,12 @@ def hybrid_search(
                 if isinstance(owner_val, str) and row[8] != owner_val:
                     continue
 
-            score = round(rd.rrf, 6)
+            coverage_bonus = (
+                (matched_clause_count / total_clauses) * 0.002
+                if total_clauses > 0 and rd.bm25_rank is not None
+                else 0.0
+            )
+            score = round(rd.rrf + coverage_bonus, 6)
             if score < min_score:
                 continue
 

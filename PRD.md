@@ -277,7 +277,8 @@ At ~8 MB, the model is committed directly to the Git repository under `guardrail
 - Every team member gets the exact same embeddings. No model version drift.
 - No external network access (HuggingFace) is required after initial setup.
 - The model is version-controlled alongside the guardrails data.
-- The `guardrails init` command downloads the model once; thereafter it is a committed artifact.
+- The embedding model ships as a committed artifact. `guardrails init` creates the
+  repository files; index and embedding warm-up happen lazily on the first add/search/build.
 
 ### 7.3 Embedding Strategy
 
@@ -391,7 +392,7 @@ Agent: guardrails deduplicate --threshold 0.85
 
 | Command | Description |
 |---------|-------------|
-| `guardrails init [--taxonomy <file>]` | Create JSONL files, download model, generate `.gitignore`. Optionally bootstrap scope taxonomy from a JSON file (see §6.8). |
+| `guardrails init [--taxonomy <file>]` | Create JSONL files, taxonomy, and `.gitignore`. The bundled model is used later during lazy build/search warm-up. Optionally bootstrap scope taxonomy from a JSON file (see §6.8). |
 | `guardrails build [--force]` | Rebuild SQLite from JSONL (usually automatic via lazy build) |
 | `guardrails validate` | Check JSONL integrity, broken links, orphan refs (CI-friendly) |
 
@@ -840,7 +841,8 @@ class ErrorResponse(BaseModel):
 
 ### 18.1 Functional
 
-- [ ] `guardrails init` creates JSONL files, `taxonomy.json`, downloads and stores the embedding model, generates `.gitignore`.
+- [ ] `guardrails init` creates JSONL files, `taxonomy.json`, and `.gitignore`.
+- [ ] The bundled embedding model is available without network access and is loaded during lazy build/search warm-up.
 - [ ] `guardrails init --taxonomy <file>` bootstraps scope vocabulary from an external JSON file.
 - [ ] `guardrails add` accepts a guardrail JSON on stdin, validates it, appends to JSONL, rebuilds index, and returns the created record.
 - [ ] `guardrails search` returns ranked results using hybrid BM25 + vector search with RRF fusion.

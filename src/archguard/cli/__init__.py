@@ -115,11 +115,13 @@ app = typer.Typer(
         "duplicates, then 'archguard add --schema' to fetch the exact input contract. "
         "Prefer status=draft when source authority is uncertain.\n\n"
         "Quick start:\n\n"
-        "  archguard guide         Full CLI schema for agent bootstrap\n"
-        "  archguard init          Create data directory and taxonomy\n"
-        "  archguard add < g.json  Add a guardrail from JSON on stdin\n"
-        "  archguard search 'api'  Search guardrails by keyword\n"
-        "  archguard check < d.json  Check a decision against the corpus\n"
+        "  archguard guide                  Full CLI schema for agent bootstrap\n"
+        "  archguard init                   Create data files and taxonomy\n"
+        "  POSIX:      archguard add < g.json\n"
+        "  PowerShell: Get-Content .\\g.json | archguard add\n"
+        "  archguard search \"api\"          Search guardrails by keyword\n"
+        "  POSIX:      archguard check < d.json\n"
+        "  PowerShell: Get-Content .\\d.json | archguard check\n"
     ),
     no_args_is_help=True,
     pretty_exceptions_enable=False,
@@ -135,6 +137,7 @@ class GlobalState:
 
 
 state = GlobalState()
+_REPOSITORY_FILES = ("guardrails.jsonl", "references.jsonl", "links.jsonl", "taxonomy.json")
 
 
 def emit_progress(message: str) -> None:
@@ -163,6 +166,41 @@ def emit_index_build_notice(command: str, data_dir: Path, *, explicit: bool = Fa
             f"{command}: building the search index for first use."
             " Embedding model warm-up may take several seconds."
         )
+
+
+def require_data_dir(command: str) -> Path:
+    """Return the configured data directory after verifying repository initialization."""
+    data_dir = Path(state.data_dir)
+    if not data_dir.exists():
+        handle_error(
+            command,
+            "ERR_IO_FILE_NOT_FOUND",
+            (
+                f"Data directory '{data_dir}' does not exist. "
+                "Run 'archguard init' for this path before using the repository."
+            ),
+            details={"path": str(data_dir), "missing": list(_REPOSITORY_FILES)},
+        )
+    if not data_dir.is_dir():
+        handle_error(
+            command,
+            "ERR_IO_FILE_NOT_FOUND",
+            f"Data directory '{data_dir}' is not a directory",
+            details={"path": str(data_dir)},
+        )
+
+    missing_files = [name for name in _REPOSITORY_FILES if not (data_dir / name).exists()]
+    if missing_files:
+        handle_error(
+            command,
+            "ERR_IO_FILE_NOT_FOUND",
+            (
+                f"Data directory '{data_dir}' is not initialized. "
+                "Run 'archguard init' for this path before using the repository."
+            ),
+            details={"path": str(data_dir), "missing": missing_files},
+        )
+    return data_dir
 
 
 def ensure_supported_format(command: str, *supported_formats: str) -> None:

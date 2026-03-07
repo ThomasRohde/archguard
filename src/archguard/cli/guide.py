@@ -418,7 +418,8 @@ def _commands() -> dict[str, Any]:
             "mutates": True,
             "description": (
                 "Create guardrails data directory, JSONL files, "
-                "taxonomy, and .gitignore."
+                "taxonomy, and .gitignore. Search index warm-up happens lazily "
+                "on first add/search/build."
             ),
             "args": [],
             "flags": ["--taxonomy PATH", "--explain", "--schema"],
@@ -816,7 +817,7 @@ def _error_codes() -> dict[str, Any]:
 
 def _examples() -> list[dict[str, Any]]:
     """Concrete usage examples for common workflows."""
-    add_example = (
+    posix_add_example = (
         "echo '{\"title\":\"Prefer managed services\","
         "\"severity\":\"should\","
         "\"rationale\":\"Reduce ops burden\","
@@ -825,16 +826,20 @@ def _examples() -> list[dict[str, Any]]:
         "\"applies_to\":[\"technology\"],"
         "\"owner\":\"Platform Team\"}' | archguard add"
     )
-    check_example = (
+    powershell_add_example = "Get-Content .\\g.json | archguard add"
+    posix_check_example = (
         "echo '{\"decision\":\"Use self-hosted Kafka\","
         "\"scope\":[\"it-platform\"],"
         "\"tags\":[\"kafka\"]}' | archguard check"
     )
-    update_example = (
+    powershell_check_example = "Get-Content .\\decision.json | archguard check"
+    posix_update_example = (
         "echo '{\"severity\":\"must\","
         "\"guidance\":\"Updated guidance\"}'"
         " | archguard update 01HXYZ..."
     )
+    powershell_update_example = "Get-Content .\\patch.json | archguard update 01HXYZ..."
+    powershell_ref_add_example = "Get-Content .\\reference.json | archguard ref-add 01HXYZ..."
     return [
         {
             "title": "Bootstrap a new guardrails repository",
@@ -845,7 +850,8 @@ def _examples() -> list[dict[str, Any]]:
         },
         {
             "title": "Add a guardrail",
-            "commands": [add_example],
+            "commands": [posix_add_example],
+            "powershell_commands": [powershell_add_example],
         },
         {
             "title": "Search guardrails",
@@ -862,11 +868,22 @@ def _examples() -> list[dict[str, Any]]:
         },
         {
             "title": "Check a proposed decision against the corpus",
-            "commands": [check_example],
+            "commands": [posix_check_example],
+            "powershell_commands": [powershell_check_example],
         },
         {
             "title": "Update a guardrail (patch semantics)",
-            "commands": [update_example],
+            "commands": [posix_update_example],
+            "powershell_commands": [powershell_update_example],
+        },
+        {
+            "title": "Add a reference from stdin",
+            "commands": [
+                "echo '{\"ref_type\":\"adr\",\"ref_id\":\"ADR-001\","
+                "\"ref_title\":\"Use managed services\"}'"
+                " | archguard ref-add 01HXYZ...",
+            ],
+            "powershell_commands": [powershell_ref_add_example],
         },
         {
             "title": "Link two guardrails",

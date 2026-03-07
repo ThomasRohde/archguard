@@ -8,6 +8,7 @@ from pathlib import Path
 import orjson
 
 from archguard.core.models import Guardrail, Link, Reference
+from archguard.core.search_terms import derive_search_terms
 
 SCHEMA_VERSION = 1
 
@@ -161,10 +162,28 @@ def build_index(
             [(lnk.from_id, lnk.to_id, lnk.rel_type, lnk.note) for lnk in links],
         )
 
-        # Populate FTS5
-        conn.execute(
+        # Populate FTS5 with a small derived-term expansion to improve recall for
+        # closely related infrastructure concepts such as Kafka <-> messaging brokers.
+        row_ids = {
+            row["id"]: row["rowid"]
+            for row in conn.execute("SELECT rowid, id FROM guardrails").fetchall()
+        }
+        conn.executemany(
             """INSERT INTO guardrails_fts(rowid, title, rationale, guidance, exceptions, scope)
-               SELECT rowid, title, rationale, guidance, exceptions, scope FROM guardrails"""
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    row_ids[g.id],
+                    g.title,
+                    g.rationale,
+                    g.guidance,
+                    " ".join(part for part in [g.exceptions, *derive_search_terms(
+                        " ".join([g.title, g.guidance, g.rationale, g.exceptions])
+                    )] if part),
+                    " ".join(g.scope),
+                )
+                for g in guardrails
+            ],
         )
 
         conn.commit()

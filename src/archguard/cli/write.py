@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 from typing import Annotated, Any
 
 import typer
@@ -13,7 +12,7 @@ from archguard.cli import (
     emit_index_build_notice,
     ensure_supported_format,
     handle_error,
-    state,
+    require_data_dir,
     summarize_validation_error,
 )
 from archguard.output.json import envelope
@@ -81,7 +80,7 @@ def add(
     from archguard.core.models import Guardrail, GuardrailCreate, Reference
     from archguard.core.store import append_jsonl, load_guardrails, load_taxonomy
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("add")
 
     # Read JSON from stdin
     raw = sys.stdin.read().strip()
@@ -228,7 +227,7 @@ def update(
     from archguard.core.models import GuardrailPatch
     from archguard.core.store import load_guardrails, load_taxonomy, rewrite_jsonl
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("update")
 
     # Read patch JSON from stdin
     raw = sys.stdin.read().strip()
@@ -355,7 +354,7 @@ def ref_add(
     from archguard.core.models import Reference, ReferenceCreate
     from archguard.core.store import append_jsonl, load_guardrails
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("ref-add")
 
     # Read reference JSON from stdin
     raw = sys.stdin.read().strip()
@@ -443,7 +442,7 @@ def link(
     from archguard.core.models import Link as LinkModel
     from archguard.core.store import append_jsonl, load_guardrails
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("link")
 
     # Validate rel type
     valid_rels = {"supports", "conflicts", "refines", "implements", "requires"}
@@ -515,7 +514,7 @@ def delete(
         rewrite_jsonl,
     )
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("delete")
     guardrails = load_guardrails(data_dir)
 
     target = next((g for g in guardrails if g.id == guardrail_id), None)
@@ -577,7 +576,7 @@ def deprecate(
 
     from archguard.core.store import load_guardrails, rewrite_jsonl
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("deprecate")
 
     guardrails = load_guardrails(data_dir)
     idx = next((i for i, g in enumerate(guardrails) if g.id == guardrail_id), None)
@@ -642,7 +641,7 @@ def supersede(
     from archguard.core.models import Link as LinkModel
     from archguard.core.store import append_jsonl, load_guardrails, rewrite_jsonl
 
-    data_dir = Path(state.data_dir)
+    data_dir = require_data_dir("supersede")
 
     guardrails = load_guardrails(data_dir)
     ids = {g.id for g in guardrails}

@@ -26,6 +26,10 @@ uv tool install archguard
 
 ## Quick start
 
+`archguard init` creates the JSONL repository files and taxonomy. The SQLite index and embedding vectors are built lazily on the first `add`, `search`, or `build`.
+
+### POSIX shells
+
 ```bash
 # Initialize a guardrails repository
 archguard init
@@ -45,11 +49,28 @@ archguard export --format markdown
 archguard -f table stats
 ```
 
+### PowerShell
+
+```powershell
+# Initialize a guardrails repository
+archguard init
+
+# Add a guardrail from a JSON file on stdin
+Get-Content .\g.json | archguard add
+
+# Check a decision against guardrails
+Get-Content .\decision.json | archguard check
+
+# Update and ref-add also read JSON from stdin
+Get-Content .\patch.json | archguard update 01HXYZ...
+Get-Content .\reference.json | archguard ref-add 01HXYZ...
+```
+
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `archguard init` | Create data directory and download embedding model |
+| `archguard init` | Create repository files and taxonomy; search index warms lazily |
 | `archguard add` | Add a guardrail (reads JSON from stdin) |
 | `archguard get <id>` | Get full detail for a guardrail |
 | `archguard list` | List guardrails with filters |
