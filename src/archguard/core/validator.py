@@ -63,6 +63,58 @@ _IMPERATIVE_GUIDANCE_RE = re.compile(
     re.IGNORECASE,
 )
 
+PLACEHOLDER_OWNERS = {
+    "tbd",
+    "todo",
+    "n/a",
+    "unknown",
+    "none",
+    "placeholder",
+    "xxx",
+    "unassigned",
+}
+
+
+def owner_is_placeholder(owner: str) -> bool:
+    """Return True when owner is a neutral placeholder rather than accountable ownership."""
+    return owner.lower().strip() in PLACEHOLDER_OWNERS
+
+
+def has_reference_evidence(references: list[Reference] | None) -> bool:
+    """Return True if any reference preserves non-empty evidence text."""
+    if not references:
+        return False
+    return any(bool(getattr(ref, "excerpt", "").strip()) for ref in references)
+
+
+def check_active_guardrail_requirements(
+    guardrail: Guardrail,
+    references: list[Reference] | None = None,
+) -> list[str]:
+    """Return hard policy issues for guardrails that claim active status."""
+    if guardrail.status != "active":
+        return []
+
+    issues: list[str] = []
+    gid = guardrail.id[:8]
+
+    if not references:
+        issues.append(
+            f"Guardrail {gid}: status is 'active' but no references found."
+        )
+    elif not has_reference_evidence(references):
+        issues.append(
+            f"Guardrail {gid}: status is 'active' but no reference excerpt "
+            f"preserves the source evidence."
+        )
+
+    if owner_is_placeholder(guardrail.owner):
+        issues.append(
+            f"Guardrail {gid}: status is 'active' but owner is a placeholder ('{guardrail.owner}')."
+        )
+
+    return issues
+
 
 def check_severity_consistency(guardrail: Guardrail) -> list[str]:
     """Return warnings if the guardrail text uses RFC 2119 keywords that conflict
@@ -138,8 +190,7 @@ def check_authoring_quality(
                 )
 
     # Placeholder owner
-    _PLACEHOLDER_OWNERS = {"tbd", "todo", "n/a", "unknown", "none", "placeholder", "xxx"}
-    if guardrail.owner.lower().strip() in _PLACEHOLDER_OWNERS:
+    if owner_is_placeholder(guardrail.owner):
         warnings.append(
             f"Guardrail {gid}: owner is a placeholder ('{guardrail.owner}'). "
             f"Assign an accountable role or team."
@@ -152,6 +203,11 @@ def check_authoring_quality(
             warnings.append(
                 f"Guardrail {gid}: status is 'active' but no references found. "
                 f"Active guardrails should cite at least one authoritative source."
+            )
+        elif not has_reference_evidence(references):
+            warnings.append(
+                f"Guardrail {gid}: status is 'active' but no reference excerpt preserves evidence. "
+                f"Active guardrails should include at least one excerpt showing the source rule."
             )
 
     return warnings
@@ -227,6 +283,9 @@ def validate_corpus(data_dir: Path) -> ValidationResult:
 
     # Check severity vs. text consistency and authoring quality
     for g in guardrails:
+        result.errors.extend(
+            check_active_guardrail_requirements(g, refs_by_guardrail.get(g.id, [])),
+        )
         result.warnings.extend(check_severity_consistency(g))
         result.warnings.extend(
             check_authoring_quality(g, refs_by_guardrail.get(g.id, [])),

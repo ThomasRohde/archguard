@@ -92,6 +92,15 @@ Get-Content .\reference.json | archguard ref-add 01HXYZ...
 
 Every command supports `--explain` for a description and `--help` for usage.
 
+## Authoring guardrails safely
+
+- Keep records **atomic**: one rule per guardrail.
+- Use `status: "draft"` when owner, scope, lifecycle stage, or review timing must be inferred.
+- Keep `owner` required, but use a neutral placeholder such as `unassigned` for incomplete draft captures instead of inventing a precise team.
+- Do not invent `review_date` from generic source material; only set it from repository policy or human input.
+- `active` guardrails are stricter than drafts: they must have at least one authoritative reference, at least one non-empty `excerpt` preserving the evidence, and a non-placeholder owner.
+- Record inferred/defaulted decisions in `metadata` when useful, for example under `metadata.field_derivation`.
+
 ## Global options
 
 ```

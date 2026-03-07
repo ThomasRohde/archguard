@@ -20,18 +20,63 @@ class TestValidateCorpusClean:
         (tmp_data_dir / "guardrails.jsonl").write_bytes(
             orjson.dumps(sample_guardrail_dict) + b"\n"
         )
+        reference = {
+            "guardrail_id": sample_guardrail_dict["id"],
+            "ref_type": "policy",
+            "ref_id": "POL-001",
+            "ref_title": "Security Policy",
+            "excerpt": "Encrypt data at rest with approved controls.",
+            "added_at": "2025-01-01T00:00:00Z",
+        }
+        (tmp_data_dir / "references.jsonl").write_bytes(orjson.dumps(reference) + b"\n")
         result = validate_corpus(tmp_data_dir)
         assert result.ok
 
-    def test_active_guardrail_without_reference_warns(
+    def test_active_guardrail_without_reference_errors(
         self, tmp_data_dir: Path, sample_guardrail_dict: dict
     ) -> None:
         (tmp_data_dir / "guardrails.jsonl").write_bytes(
             orjson.dumps(sample_guardrail_dict) + b"\n"
         )
         result = validate_corpus(tmp_data_dir)
-        assert result.ok
-        assert any("status is 'active' but no references found" in w for w in result.warnings)
+        assert not result.ok
+        assert any("status is 'active' but no references found" in e for e in result.errors)
+
+    def test_active_guardrail_without_excerpt_errors(
+        self, tmp_data_dir: Path, sample_guardrail_dict: dict
+    ) -> None:
+        (tmp_data_dir / "guardrails.jsonl").write_bytes(
+            orjson.dumps(sample_guardrail_dict) + b"\n"
+        )
+        reference = {
+            "guardrail_id": sample_guardrail_dict["id"],
+            "ref_type": "policy",
+            "ref_id": "POL-001",
+            "ref_title": "Security Policy",
+            "added_at": "2025-01-01T00:00:00Z",
+        }
+        (tmp_data_dir / "references.jsonl").write_bytes(orjson.dumps(reference) + b"\n")
+        result = validate_corpus(tmp_data_dir)
+        assert not result.ok
+        assert any("no reference excerpt preserves the source evidence" in e for e in result.errors)
+
+    def test_active_guardrail_with_placeholder_owner_errors(
+        self, tmp_data_dir: Path, sample_guardrail_dict: dict
+    ) -> None:
+        bad = {**sample_guardrail_dict, "owner": "unassigned"}
+        (tmp_data_dir / "guardrails.jsonl").write_bytes(orjson.dumps(bad) + b"\n")
+        reference = {
+            "guardrail_id": sample_guardrail_dict["id"],
+            "ref_type": "policy",
+            "ref_id": "POL-001",
+            "ref_title": "Security Policy",
+            "excerpt": "Encrypt data at rest with approved controls.",
+            "added_at": "2025-01-01T00:00:00Z",
+        }
+        (tmp_data_dir / "references.jsonl").write_bytes(orjson.dumps(reference) + b"\n")
+        result = validate_corpus(tmp_data_dir)
+        assert not result.ok
+        assert any("owner is a placeholder ('unassigned')" in e for e in result.errors)
 
     def test_imperative_guidance_does_not_trigger_normative_warning(
         self, sample_guardrail_dict: dict

@@ -12,6 +12,15 @@ from archguard.cli import app
 
 runner = CliRunner()
 
+ACTIVE_REFERENCE_INPUT = json.dumps(
+    {
+        "ref_type": "adr",
+        "ref_id": "ADR-001",
+        "ref_title": "Managed services decision",
+        "excerpt": "Use managed offerings unless a documented exception is approved.",
+    }
+)
+
 ADD_INPUT = json.dumps(
     {
         "title": "Prefer managed services",
@@ -312,6 +321,8 @@ class TestAddCommand:
         result = runner.invoke(app, ["add", "--explain"])
         assert result.exit_code == 0
         assert "add reads" in result.output
+        assert "Invented owner" in result.output
+        assert "include an excerpt" in result.output
 
     def test_add_schema(self) -> None:
         result = runner.invoke(app, ["add", "--schema"])
@@ -319,6 +330,92 @@ class TestAddCommand:
         out = orjson.loads(result.output)
         assert out["ok"] is True
         assert "properties" in out["result"]["schema"]
+        assert "provenance_contract" in out["result"]
+        assert "minimum_evidence" in out["result"]
+
+    def test_add_active_requires_reference_excerpt(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        active_input = json.dumps(
+            {
+                "title": "Active with weak refs",
+                "status": "active",
+                "severity": "should",
+                "rationale": "Test",
+                "guidance": "Use managed offerings",
+                "scope": ["it-platform"],
+                "applies_to": ["technology"],
+                "owner": "Platform Team",
+                "references": [
+                    {
+                        "ref_type": "adr",
+                        "ref_id": "ADR-001",
+                        "ref_title": "Managed services decision",
+                    }
+                ],
+            }
+        )
+        result = runner.invoke(app, ["--data-dir", dd, "add"], input=active_input)
+        assert result.exit_code == 10
+        out = _parse(result.output)
+        assert "reference excerpt" in out["errors"][0]["message"]
+
+    def test_add_active_requires_non_placeholder_owner(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        active_input = json.dumps(
+            {
+                "title": "Active with placeholder owner",
+                "status": "active",
+                "severity": "should",
+                "rationale": "Test",
+                "guidance": "Use managed offerings",
+                "scope": ["it-platform"],
+                "applies_to": ["technology"],
+                "owner": "unassigned",
+                "references": [json.loads(ACTIVE_REFERENCE_INPUT)],
+            }
+        )
+        result = runner.invoke(app, ["--data-dir", dd, "add"], input=active_input)
+        assert result.exit_code == 10
+        out = _parse(result.output)
+        assert "non-placeholder owner" in out["errors"][0]["message"]
+
+    def test_add_active_with_excerpt_and_owner_succeeds(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        active_input = json.dumps(
+            {
+                "title": "Active with evidence",
+                "status": "active",
+                "severity": "should",
+                "rationale": "Test",
+                "guidance": "Use managed offerings",
+                "scope": ["it-platform"],
+                "applies_to": ["technology"],
+                "owner": "Platform Team",
+                "references": [json.loads(ACTIVE_REFERENCE_INPUT)],
+            }
+        )
+        result = runner.invoke(app, ["--data-dir", dd, "add"], input=active_input)
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        assert out["result"]["guardrail"]["status"] == "active"
+
+    def test_add_draft_allows_placeholder_owner(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        draft_input = json.dumps(
+            {
+                "title": "Draft with placeholder owner",
+                "severity": "should",
+                "rationale": "Test",
+                "guidance": "Use managed offerings",
+                "scope": ["it-platform"],
+                "applies_to": ["technology"],
+                "owner": "unassigned",
+            }
+        )
+        result = runner.invoke(app, ["--data-dir", dd, "add"], input=draft_input)
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        assert out["result"]["guardrail"]["owner"] == "unassigned"
 
 
 class TestGetCommand:
@@ -964,6 +1061,36 @@ class TestUpdateCommand:
         out = _parse(result.output)
         assert out["result"]["guardrail"]["updated_at"] != original_updated
 
+    def test_update_active_requires_reference_excerpt(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        gid = _add_guardrail(dd)
+        runner.invoke(
+            app,
+            ["--data-dir", dd, "ref-add", gid],
+            input=json.dumps(
+                {
+                    "ref_type": "adr",
+                    "ref_id": "ADR-001",
+                    "ref_title": "Managed services decision",
+                }
+            ),
+        )
+        patch = json.dumps({"status": "active"})
+        result = runner.invoke(app, ["--data-dir", dd, "update", gid], input=patch)
+        assert result.exit_code == 10
+        out = _parse(result.output)
+        assert "reference excerpt" in out["errors"][0]["message"]
+
+    def test_update_active_requires_non_placeholder_owner(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        gid = _add_guardrail(dd)
+        runner.invoke(app, ["--data-dir", dd, "ref-add", gid], input=ACTIVE_REFERENCE_INPUT)
+        patch = json.dumps({"status": "active", "owner": "unassigned"})
+        result = runner.invoke(app, ["--data-dir", dd, "update", gid], input=patch)
+        assert result.exit_code == 10
+        out = _parse(result.output)
+        assert "non-placeholder owner" in out["errors"][0]["message"]
+
 
 class TestRefAddCommand:
     def test_ref_add_success(self, tmp_path) -> None:
@@ -1062,9 +1189,16 @@ class TestDeprecateCommand:
     def test_deprecate_active(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         gid = _add_guardrail(dd)
+        ref_result = runner.invoke(
+            app,
+            ["--data-dir", dd, "ref-add", gid],
+            input=ACTIVE_REFERENCE_INPUT,
+        )
+        assert ref_result.exit_code == 0
         # Update to active first
         patch = json.dumps({"status": "active"})
-        runner.invoke(app, ["--data-dir", dd, "update", gid], input=patch)
+        update_result = runner.invoke(app, ["--data-dir", dd, "update", gid], input=patch)
+        assert update_result.exit_code == 0
         result = runner.invoke(
             app, ["--data-dir", dd, "deprecate", gid, "--reason", "Replaced"]
         )
@@ -1720,6 +1854,9 @@ class TestGuideCommand:
         out = _parse(result.output)
         r = out["result"]
         assert "commands" in r
+        assert "provenance_contract" in r
+        assert "minimum_evidence" in r
+        assert "defaulting_policy" in r
         assert "error_codes" in r
         assert "exit_codes" in r
         assert "envelope_schema" in r
@@ -1781,6 +1918,14 @@ class TestGuideCommand:
         result = runner.invoke(app, ["guide", "--explain"])
         assert result.exit_code == 0
         assert "machine-readable" in result.output
+
+    def test_guide_task_add_guardrail_includes_provenance_contract(self) -> None:
+        result = runner.invoke(app, ["guide", "--task", "add-guardrail"])
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        assert "provenance_contract" in out["result"]
+        assert "minimum_evidence" in out["result"]
+        assert "when_not_to_infer" in out["result"]
 
 
 class TestLLMMode:

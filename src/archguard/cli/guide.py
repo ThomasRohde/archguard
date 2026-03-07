@@ -38,11 +38,15 @@ def _build_guide(data_dir: str = "guardrails") -> dict[str, Any]:
             "breaking_changes": "major",
         },
         "agent_bootstrap": _agent_bootstrap(),
+        "provenance_contract": _provenance_contract(),
+        "minimum_evidence": _minimum_evidence(),
+        "defaulting_policy": _defaulting_policy(),
         "vocabulary": _vocabulary(data_dir),
         "field_semantics": _field_semantics(),
         "capture_workflow": _capture_workflow(),
         "quality_criteria": _quality_criteria(),
         "anti_patterns": _anti_patterns(),
+        "when_not_to_infer": _when_not_to_infer(),
         "when_not_to_add": _when_not_to_add(),
         "global_options": {
             "--format, -f": {
@@ -182,9 +186,110 @@ def _agent_bootstrap() -> dict[str, Any]:
             "archguard add --schema    — fetch the exact input contract",
         ],
         "writes_are_sequential": True,
-        "prefer_draft": (
-            "Set status=draft when source authority is incomplete, "
-            "scope is uncertain, or exact wording needs human review."
+        "prefer_draft": [
+            "Set status=draft when the source is not clearly authoritative.",
+            (
+                "Set status=draft when severity, scope, owner, lifecycle_stage, "
+                "or review_date must be inferred or defaulted."
+            ),
+            "Set status=draft when no source excerpt can be cited for the rule.",
+            (
+                "Only set status=active when the rule is clearly supported by an "
+                "authoritative source and at least one evidence-bearing reference is attached."
+            ),
+        ],
+    }
+
+
+def _provenance_contract() -> dict[str, Any]:
+    """Describe which fields come from the source versus agent judgment."""
+    return {
+        "principle": (
+            "Never present inferred or defaulted values as if they were stated by the source."
+        ),
+        "field_classes": {
+            "source_derived": [
+                "references",
+                "reference excerpts",
+                "source identifiers",
+                "source normative language",
+            ],
+            "normalized_from_source": [
+                "title",
+                "guidance",
+                "rationale",
+                "severity",
+            ],
+            "inferred_or_defaulted": [
+                "owner",
+                "scope",
+                "applies_to",
+                "lifecycle_stage",
+                "review_date",
+                "metadata",
+            ],
+        },
+        "rules": [
+            "If a field is inferred or defaulted, record that fact in metadata.",
+            (
+                "Do not invent precise governance metadata unless the source states it "
+                "or repository policy supplies it."
+            ),
+            "If key governance fields are inferred, prefer status=draft.",
+        ],
+        "metadata_convention": {
+            "recommended_shape": {
+                "field_derivation": {
+                    "owner": "defaulted|inferred|source",
+                    "scope": "source|inferred",
+                    "review_date": "source|policy|unset",
+                }
+            },
+            "note": (
+                "metadata is extensible. Use it to record provenance/defaulting decisions "
+                "without changing the core record shape."
+            ),
+        },
+    }
+
+
+def _minimum_evidence() -> dict[str, Any]:
+    """Describe what evidence is expected for draft vs active guardrails."""
+    return {
+        "active_guardrail_requires": [
+            "At least one authoritative reference.",
+            "At least one source excerpt showing the evidence for the rule.",
+            "Severity justified by the source wording, not model confidence.",
+            "A non-placeholder owner accountable for the active rule.",
+        ],
+        "draft_guardrail_allows": [
+            "Incomplete scope.",
+            "Placeholder owner such as 'unassigned'.",
+            "Missing review_date.",
+            "Inferred applies_to tags.",
+        ],
+    }
+
+
+def _defaulting_policy() -> dict[str, str]:
+    """Guidance for fields that often pressure agents into false precision."""
+    return {
+        "owner": (
+            "Do not infer a specific owner from generic source material. If the source does "
+            "not name an accountable owner, keep the record draft and use a neutral placeholder "
+            "such as 'unassigned'."
+        ),
+        "review_date": (
+            "Do not invent a specific review date from source material. Only set review_date "
+            "from repository policy or human input."
+        ),
+        "scope": (
+            "Use source-aligned scope only when the mapping is obvious. Otherwise choose the "
+            "broadest valid scope and keep status=draft."
+        ),
+        "lifecycle_stage": (
+            "Only assign lifecycle stages that are directly supported by the source or clearly "
+            "implied by the rule."
         ),
     }
 
@@ -217,7 +322,10 @@ def _field_semantics() -> dict[str, Any]:
                 "Candidate guardrail. Use when wording, scope, or "
                 "authority is still being validated."
             ),
-            "active": "Current approved guardrail.",
+            "active": (
+                "Current approved guardrail. Requires authoritative references, at least one "
+                "evidence-bearing excerpt, and non-placeholder governance metadata."
+            ),
             "deprecated": (
                 "Retained for audit trail, but no longer preferred. "
                 "Use 'deprecate' command."
@@ -237,10 +345,24 @@ def _field_semantics() -> dict[str, Any]:
             "(e.g. 'technology', 'data', 'integration'). "
             "Not validated against taxonomy."
         ),
+        "owner": (
+            "Person or team accountable for the rule. Keep owner required in the add contract, "
+            "but do not invent false precision: when the source does not name an owner, use a "
+            "neutral placeholder such as 'unassigned' and keep status=draft."
+        ),
+        "review_date": (
+            "Next scheduled review date. Optional. Only set it from repository policy or human "
+            "input; do not infer a calendar date from generic source material."
+        ),
+        "lifecycle_stage": (
+            "When in the lifecycle the guardrail applies. Defaults exist for convenience, but "
+            "narrow values should only be assigned when the source clearly supports them."
+        ),
         "references": (
             "External citations linking a guardrail to its authoritative "
-            "source. Active guardrails should have at least one reference. "
-            "Types: adr, policy, standard, regulation, pattern, document."
+            "source. Active guardrails must have at least one authoritative reference and at "
+            "least one excerpt showing the evidence for the rule. Types: adr, policy, standard, "
+            "regulation, pattern, document."
         ),
         "title": (
             "States the rule, not the rationale. "
@@ -265,15 +387,21 @@ def _capture_workflow() -> list[str]:
     """Step-by-step process for extracting a guardrail from source material."""
     return [
         "1. Search for existing overlapping guardrails (archguard search <topic>).",
-        "2. Extract ONE atomic rule from the source material.",
-        "3. Choose severity based on source strength, not model confidence.",
-        "4. Set status=draft if authority, scope, or wording is uncertain.",
-        "5. Write a normative title (states the rule, not the topic).",
-        "6. Write actionable guidance (what to do, not 'follow best practices').",
-        "7. Write rationale (why the rule exists).",
-        "8. Attach authoritative references (archguard ref-add).",
-        "9. Create the guardrail (archguard add).",
-        "10. Link, supersede, or deprecate related records if needed.",
+        (
+            "2. Extract candidate normative statements from the source. Ignore background "
+            "context unless it implies a clear rule."
+        ),
+        "3. Keep ONE atomic rule only.",
+        "4. Record the source evidence: reference, excerpt, section, or quote span.",
+        "5. Choose severity based on source wording, not model confidence.",
+        "6. Classify each field as source-derived, normalized, inferred, or defaulted.",
+        "7. If key fields are inferred or evidence is weak, set status=draft.",
+        "8. Write a normative title (states the rule, not the topic).",
+        "9. Write actionable guidance (what to do, not 'follow best practices').",
+        "10. Write rationale (why the rule exists).",
+        "11. Attach references and evidence (archguard ref-add).",
+        "12. Create the guardrail (archguard add).",
+        "13. Link, supersede, or deprecate related records if needed.",
     ]
 
 
@@ -286,6 +414,9 @@ def _quality_criteria() -> list[str]:
         "Rationale explains why the rule exists.",
         "Severity does not exceed source strength.",
         "Active guardrails have at least one authoritative reference.",
+        "Active guardrails include evidence such as an excerpt or section pointer text.",
+        "Inferred/defaulted fields are clearly marked in metadata.",
+        "Owner and review_date are not invented from non-governance source material.",
         "Scope and applies_to are specific, not overly broad.",
         "No duplicate or near-duplicate of an existing guardrail.",
     ]
@@ -302,6 +433,39 @@ def _anti_patterns() -> list[str]:
         "Title that describes a topic area rather than stating a rule.",
         "Rationale that repeats the guidance instead of explaining the 'why'.",
         "Setting status=active without attaching references.",
+        "Assigning a specific owner when the source does not identify one.",
+        "Inventing a precise review date with no repository policy or human input.",
+        (
+            "Populating scope, lifecycle_stage, or applies_to with narrow labels that are not "
+            "supported by the source."
+        ),
+        "Setting status=active when the record depends heavily on inference.",
+        "Using a reference URL without preserving the evidence excerpt that justified the rule.",
+    ]
+
+
+def _when_not_to_infer() -> list[dict[str, str]]:
+    """Fields where false precision is especially harmful."""
+    return [
+        {
+            "field": "owner",
+            "rule": (
+                "Do not infer a team owner from a generic industry source, vendor guide, or "
+                "architecture article."
+            ),
+        },
+        {
+            "field": "review_date",
+            "rule": "Do not invent a calendar date unless repository policy defines one.",
+        },
+        {
+            "field": "severity",
+            "rule": "Do not upgrade advisory language to mandatory language.",
+        },
+        {
+            "field": "scope",
+            "rule": "Do not map to a narrow domain label unless the mapping is obvious.",
+        },
     ]
 
 
@@ -405,6 +569,58 @@ def _good_and_bad_examples() -> list[dict[str, Any]]:
                     "correlation_id, timestamp, level, and service_name "
                     "in every log entry."
                 ),
+            },
+        },
+        {
+            "label": "False precision in metadata",
+            "bad": {
+                "title": "Implement centralized incident response processes",
+                "owner": "Security Architecture",
+                "review_date": "2026-12-31",
+                "problem": (
+                    "The source does not identify an owner or review date. "
+                    "These values were invented."
+                ),
+            },
+            "good": {
+                "title": "Implement centralized incident response processes",
+                "owner": "unassigned",
+                "status": "draft",
+                "metadata": {
+                    "field_derivation": {
+                        "owner": "defaulted",
+                        "review_date": "unset",
+                        "scope": "inferred",
+                    }
+                },
+            },
+        },
+        {
+            "label": "Reference without evidence",
+            "bad": {
+                "references": [
+                    {
+                        "ref_type": "document",
+                        "ref_title": "Security checklist",
+                        "ref_url": "https://example.com/checklist",
+                    }
+                ],
+                "problem": (
+                    "The source is linked, but the specific evidence for the rule is not preserved."
+                ),
+            },
+            "good": {
+                "references": [
+                    {
+                        "ref_type": "document",
+                        "ref_title": "Security checklist",
+                        "ref_url": "https://example.com/checklist",
+                        "excerpt": (
+                            "Use a secure development lifecycle supported by "
+                            "threat modeling practices."
+                        ),
+                    }
+                ]
             },
         },
     ]
@@ -943,10 +1159,14 @@ def _compact_task(task: str, data_dir: str) -> dict[str, Any]:
         return {
             "task": "add-guardrail",
             "workflow": _capture_workflow(),
+            "provenance_contract": _provenance_contract(),
+            "minimum_evidence": _minimum_evidence(),
+            "defaulting_policy": _defaulting_policy(),
             "vocabulary": _vocabulary(data_dir),
             "field_semantics": _field_semantics(),
             "quality_criteria": _quality_criteria(),
             "anti_patterns": _anti_patterns(),
+            "when_not_to_infer": _when_not_to_infer(),
             "when_not_to_add": _when_not_to_add(),
             "good_and_bad_examples": _good_and_bad_examples(),
             "command": _commands()["add"],

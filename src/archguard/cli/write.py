@@ -18,19 +18,104 @@ from archguard.cli import (
 from archguard.output.json import envelope
 
 
-def _enforce_active_references(command: str, *, is_active: bool, reference_count: int) -> None:
-    """Require references when a new or newly-activated guardrail becomes active."""
-    if not is_active or reference_count > 0:
+def _has_reference_evidence(references: list[Any]) -> bool:
+    """Return True if any reference includes a non-empty excerpt."""
+    return any(bool(getattr(ref, "excerpt", "").strip()) for ref in references)
+
+
+def _enforce_active_requirements(
+    command: str,
+    *,
+    status: str,
+    owner: str,
+    references: list[Any],
+) -> None:
+    """Require evidence-backed references and accountable ownership for active guardrails."""
+    if status != "active":
         return
-    handle_error(
-        command,
-        "ERR_VALIDATION",
-        (
-            "Active guardrails require at least one reference."
-            " Add references first, or create the guardrail as draft and promote it later."
-        ),
-        details={"status": "active", "references": reference_count},
-    )
+
+    from archguard.core.validator import owner_is_placeholder
+
+    if len(references) == 0:
+        handle_error(
+            command,
+            "ERR_VALIDATION",
+            (
+                "Active guardrails require at least one reference."
+                " Add references first, or create the guardrail as draft and promote it later."
+            ),
+            details={"status": status, "references": 0},
+        )
+
+    if not _has_reference_evidence(references):
+        handle_error(
+            command,
+            "ERR_VALIDATION",
+            (
+                "Active guardrails require at least one reference excerpt "
+                "showing the source evidence."
+                " Add an excerpt, or keep the guardrail as draft until evidence is captured."
+            ),
+            details={"status": status, "references": len(references), "has_excerpt": False},
+        )
+
+    if owner_is_placeholder(owner):
+        handle_error(
+            command,
+            "ERR_VALIDATION",
+            (
+                "Active guardrails require a non-placeholder owner."
+                " Use a neutral placeholder such as 'unassigned' only for draft records."
+            ),
+            details={"status": status, "owner": owner},
+        )
+
+
+def _add_schema_contract(schema_data: dict[str, Any]) -> dict[str, Any]:
+    """Augment the raw Pydantic schema with authoring guidance for agents."""
+    return {
+        "schema": schema_data,
+        "provenance_contract": {
+            "principle": (
+                "Never present inferred or defaulted values as if they were stated by the source."
+            ),
+            "draft_when": [
+                (
+                    "Owner is unknown and must be defaulted to a neutral "
+                    "placeholder such as 'unassigned'."
+                ),
+                "Scope or lifecycle_stage must be inferred.",
+                "No source excerpt is available for the rule.",
+            ],
+            "metadata_hint": (
+                "If fields are inferred or defaulted, record that fact in metadata, for example "
+                "metadata.field_derivation.owner='defaulted'."
+            ),
+        },
+        "minimum_evidence": {
+            "active_guardrail_requires": [
+                "At least one authoritative reference.",
+                "At least one non-empty reference excerpt showing the evidence for the rule.",
+                "A non-placeholder owner."
+            ],
+            "draft_guardrail_allows": [
+                "Placeholder owner such as 'unassigned'.",
+                "Missing review_date.",
+                "Inferred applies_to and lifecycle_stage values."
+            ],
+        },
+        "defaulting_policy": {
+            "owner": (
+                "Do not infer a precise owner from generic source material. Use 'unassigned' and "
+                "keep status=draft when the accountable owner is not stated."
+            ),
+            "review_date": (
+                "Do not invent review_date from source material. Set it only "
+                "from repository policy "
+                "or human input."
+            ),
+        },
+    }
 
 
 @app.command()
@@ -58,7 +143,18 @@ def add(
             "  - Compound rules: split into one guardrail per atomic rule.\n"
             "  - Severity too high: must requires authoritative mandate, not model confidence.\n"
             "  - Vague guidance: 'follow best practices' is not actionable.\n"
-            "  - Missing references: active guardrails should cite their source.\n"
+            "  - Invented owner: do not guess a precise team from generic source material.\n"
+            "  - Invented review_date: only set it from policy or human input.\n"
+            "  - Missing evidence: active guardrails must cite their source and include "
+            "an excerpt.\n"
+            "  - Overconfident metadata: inferred scope/lifecycle values should usually "
+            "stay draft.\n"
+            "\n"
+            "DRAFT VS ACTIVE:\n"
+            "  - Use status=draft when owner, scope, lifecycle, or review timing is inferred.\n"
+            "  - A neutral placeholder such as 'unassigned' is acceptable for draft records.\n"
+            "  - status=active is reserved for rules with authoritative evidence and "
+            "accountable ownership.\n"
             "\n"
             "Call 'archguard add --schema' to see the exact input JSON schema.\n"
         )
@@ -67,7 +163,7 @@ def add(
         from archguard.core.models import GuardrailCreate
 
         schema_data = GuardrailCreate.model_json_schema()
-        sys.stdout.write(envelope("add", {"schema": schema_data}) + "\n")
+        sys.stdout.write(envelope("add", _add_schema_contract(schema_data)) + "\n")
         raise SystemExit(0)
 
     ensure_supported_format("add", "json")
@@ -119,10 +215,11 @@ def add(
                 f"Guardrail with title '{create.title}' already exists",
             )
 
-    _enforce_active_references(
+    _enforce_active_requirements(
         "add",
-        is_active=create.status == "active",
-        reference_count=len(create.references),
+        status=create.status,
+        owner=create.owner,
+        references=create.references,
     )
 
     # Generate ID and timestamps
@@ -284,11 +381,11 @@ def update(
     updated_data["updated_at"] = datetime.now(UTC).isoformat()
 
     existing_refs = [r for r in load_references(data_dir) if r.guardrail_id == guardrail_id]
-    is_newly_active = guardrails[idx].status != "active" and updated_data["status"] == "active"
-    _enforce_active_references(
+    _enforce_active_requirements(
         "update",
-        is_active=is_newly_active,
-        reference_count=len(existing_refs),
+        status=updated_data["status"],
+        owner=updated_data["owner"],
+        references=existing_refs,
     )
 
     guardrails[idx] = Guardrail.model_validate(updated_data)

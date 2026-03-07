@@ -121,6 +121,12 @@ guardrail
 └── metadata        (JSON object for extensibility)
 ```
 
+Authoring policy note:
+
+- `owner` remains required in the creation contract to preserve accountability.
+- When the source does not identify an accountable owner, agents should use a neutral placeholder such as `unassigned`, mark the record as `draft`, and record the defaulting decision in `metadata`.
+- Agents must not invent precise governance metadata such as owner or review date from generic source material.
+
 ### 5.2 Reference Record
 
 ```
@@ -133,6 +139,8 @@ reference
 ├── excerpt         (relevant quote or passage from the source)
 └── added_at        (ISO 8601)
 ```
+
+For `active` guardrails, at least one reference must preserve evidence in `excerpt`; a URL alone is not sufficient.
 
 ### 5.3 Link Record
 
@@ -317,6 +325,11 @@ The agent reads a policy document, standard, or architectural review output. It 
 ```
 
 The `add` command accepts a complete guardrail-with-references as a single JSON blob on stdin, minimizing round-trips. The `update` command supports **patch semantics** — the agent sends only changed fields.
+
+Authoring guardrail status policy:
+
+- Prefer `draft` when authority is incomplete, key fields are inferred/defaulted, or no evidence excerpt is available.
+- Only use `active` when the rule is clearly supported by an authoritative source, at least one attached reference includes an evidence-bearing `excerpt`, and the guardrail has a non-placeholder owner.
 
 ### 8.2 Governance Consultation
 
@@ -533,6 +546,8 @@ This tool conforms to the [Agent-Friendly CLI Manifest](./CLI-MANIFEST.md). Key 
 - **stderr**: Progress messages, warnings, and diagnostics.
 - `--format table` for human-readable output; `--format markdown` for publishing pipelines.
 - `--quiet` suppresses stderr noise.
+
+For authoring workflows, `guardrails guide`, `guardrails add --explain`, and `guardrails add --schema` also surface provenance/defaulting guidance so agents can distinguish source-derived facts from inferred metadata.
 
 ### 11.2 Progressive Discoverability
 
