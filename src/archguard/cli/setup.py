@@ -179,7 +179,6 @@ def validate(
     ensure_supported_format("validate", "json")
 
     from archguard.core.validator import validate_corpus
-    from archguard.output.json import EXIT_VALIDATION
 
     data_dir = require_data_dir("validate")
     result = validate_corpus(data_dir)
@@ -194,9 +193,9 @@ def validate(
                 "validate",
                 result=None,
                 ok=False,
-                errors=[{"code": "ERR_VALIDATION", "message": e} for e in result.errors],
+                errors=[{"code": "ERR_INTEGRITY", "message": e} for e in result.errors],
                 warnings=result.warnings,
             )
             + "\n"
         )
-        raise SystemExit(EXIT_VALIDATION)
+        raise SystemExit(21)

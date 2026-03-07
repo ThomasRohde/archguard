@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+_CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _STOP_WORDS = frozenset(
@@ -111,7 +112,8 @@ class QueryPlan:
 
 def normalize_text(text: str) -> str:
     """Normalize free text for token and phrase matching."""
-    lowered = text.lower().replace("-", " ").replace("_", " ")
+    split_camel_case = _CAMEL_BOUNDARY_RE.sub(" ", text)
+    lowered = split_camel_case.lower().replace("-", " ").replace("_", " ")
     return re.sub(r"\s+", " ", _NON_ALNUM_RE.sub(" ", lowered)).strip()
 
 

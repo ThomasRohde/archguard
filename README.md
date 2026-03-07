@@ -250,6 +250,8 @@ Example decision context:
 
 Every command supports `--explain` for a description and `--help` for usage.
 
+For compact, highly normative corpora, `archguard deduplicate` defaults to a threshold of `0.65` so short near-duplicates are easier to catch without immediately dropping into manual tuning.
+
 ## Authoring guardrails safely
 
 - Keep records **atomic**: one rule per guardrail.
@@ -266,6 +268,23 @@ Every command supports `--explain` for a description and `--help` for usage.
 -d, --data-dir Path to data directory (default: guardrails)
 -q, --quiet    Suppress stderr progress messages
 ```
+
+## Exit codes
+
+`archguard` uses stable process exit codes so shells, CI, and agents can branch without parsing prose:
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success |
+| `10` | Not found |
+| `11` | Already exists |
+| `12` | Invalid transition |
+| `20` | Validation error |
+| `21` | Integrity error |
+| `30` | Build error |
+| `31` | Model error |
+| `40` | I/O error |
+| `50` | Internal error |
 
 ## Output formats
 

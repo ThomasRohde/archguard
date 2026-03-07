@@ -47,8 +47,20 @@ _CONFLICTING: dict[str, list[tuple[re.Pattern[str], str]]] = {
 }
 
 _TEXT_FIELDS = ("guidance", "rationale", "exceptions", "consequences")
+_QUOTE_CHARS_BEFORE = frozenset({'"', "'", "`", "\u201c", "\u2018"})
+_QUOTE_CHARS_AFTER = frozenset({'"', "'", "`", "\u201d", "\u2019"})
 _NORMATIVE_RE = re.compile(
     r"\b(must|shall|should|may|required|recommended)\b", re.IGNORECASE,
+)
+_METALINGUISTIC_CONTEXT_RE = re.compile(
+    r"\b(errors?|error\s+messages?|message(?:s)?|word(?:ing|ed|s)?|phrase(?:s|d|ing)?|"
+    r"term(?:s)?|vocabulary|text|copy|string(?:s)?|keyword(?:s)?|label(?:s)?)\b",
+    re.IGNORECASE,
+)
+_METALINGUISTIC_CUE_RE = re.compile(
+    r"\b(use|using|include|including|contain(?:s|ing)?|return|emit|say|says|"
+    r"word(?:ed|ing)?|phrase(?:d|ing)?|quote(?:d)?|label(?:led|ing)?)\b",
+    re.IGNORECASE,
 )
 _IMPERATIVE_GUIDANCE_RE = re.compile(
     (
@@ -127,13 +139,36 @@ def check_severity_consistency(guardrail: Guardrail) -> list[str]:
             continue
         for pattern, label in conflicts:
             match = pattern.search(text)
-            if match:
+            if match and not _is_metalinguistic_keyword_use(text, match.start(), match.end()):
                 warnings.append(
                     f"Guardrail {guardrail.id[:8]} ({guardrail.severity}): "
                     f"{field_name} contains '{match.group()}' "
                     f"(conflicting {label} language)"
                 )
     return warnings
+
+
+def _is_metalinguistic_keyword_use(text: str, start: int, end: int) -> bool:
+    """Return True when a matched RFC 2119 keyword is being discussed as vocabulary.
+
+    Example: "Validation errors should use must, must not, and may not".
+    """
+    fragment_start = max(text.rfind(boundary, 0, start) for boundary in ".!?\n") + 1
+    fragment_end_candidates = [text.find(boundary, end) for boundary in ".!?\n"]
+    valid_fragment_ends = [candidate for candidate in fragment_end_candidates if candidate != -1]
+    fragment_end = min(valid_fragment_ends) if valid_fragment_ends else len(text)
+    fragment = text[fragment_start:fragment_end]
+
+    if not _METALINGUISTIC_CONTEXT_RE.search(fragment):
+        return False
+
+    prefix = fragment[: max(0, start - fragment_start)]
+    if _METALINGUISTIC_CUE_RE.search(prefix):
+        return True
+
+    quoted_before = start > 0 and text[start - 1] in _QUOTE_CHARS_BEFORE
+    quoted_after = end < len(text) and text[end] in _QUOTE_CHARS_AFTER
+    return quoted_before and quoted_after
 
 
 def check_authoring_quality(

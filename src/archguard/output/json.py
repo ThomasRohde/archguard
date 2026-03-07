@@ -100,25 +100,35 @@ def error_envelope(
 
 
 # ---------------------------------------------------------------------------
-# Exit code mapping (CLI-MANIFEST §3)
+# Exit code mapping (PRD §12)
 # ---------------------------------------------------------------------------
 
 EXIT_OK = 0
-EXIT_VALIDATION = 10       # bad input, schema mismatch, resource not found
-EXIT_CONFLICT = 40         # stale state, already exists, invalid transition
-EXIT_IO = 50               # file not found, disk full
-EXIT_INTERNAL = 90         # bug
+EXIT_GENERAL = 1
+EXIT_USAGE = 2
+EXIT_NOT_FOUND = 10
+EXIT_ALREADY_EXISTS = 11
+EXIT_INVALID_TRANSITION = 12
+EXIT_VALIDATION = 20
+EXIT_INTEGRITY = 21
+EXIT_BUILD = 30
+EXIT_MODEL = 31
+EXIT_IO = 40
+EXIT_INTERNAL = 50
 
 
 ERROR_EXIT_MAP: dict[str, int] = {
-    "ERR_RESOURCE_NOT_FOUND": EXIT_VALIDATION,
+    "ERR_RESOURCE_NOT_FOUND": EXIT_NOT_FOUND,
     "ERR_VALIDATION": EXIT_VALIDATION,
     "ERR_VALIDATION_JSON": EXIT_VALIDATION,
     "ERR_VALIDATION_INPUT": EXIT_VALIDATION,
     "ERR_VALIDATION_FORMAT": EXIT_VALIDATION,
     "ERR_VALIDATION_SCHEMA": EXIT_VALIDATION,
-    "ERR_CONFLICT_EXISTS": EXIT_CONFLICT,
-    "ERR_CONFLICT_TRANSITION": EXIT_CONFLICT,
+    "ERR_INTEGRITY": EXIT_INTEGRITY,
+    "ERR_CONFLICT_EXISTS": EXIT_ALREADY_EXISTS,
+    "ERR_CONFLICT_TRANSITION": EXIT_INVALID_TRANSITION,
+    "ERR_BUILD": EXIT_BUILD,
+    "ERR_MODEL": EXIT_MODEL,
     "ERR_IO_FILE_NOT_FOUND": EXIT_IO,
     "ERR_IO_FORMAT": EXIT_IO,
     "ERR_INTERNAL": EXIT_INTERNAL,

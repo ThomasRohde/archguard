@@ -20,6 +20,7 @@ from archguard.cli import (
     summarize_validation_error,
 )
 from archguard.core.models import Guardrail
+from archguard.core.search_terms import normalize_text
 from archguard.output.json import envelope
 
 
@@ -125,7 +126,7 @@ def review_due(
 def deduplicate(
     threshold: Annotated[
         float, typer.Option("--threshold", help="Similarity threshold (0-1)")
-    ] = 0.8,
+    ] = 0.65,
     explain: Annotated[
         bool, typer.Option("--explain", help="Explain what this command does")
     ] = False,
@@ -134,7 +135,9 @@ def deduplicate(
     if explain:
         sys.stderr.write(
             "deduplicate computes pairwise similarity between all guardrails using both FTS and "
-            "vector embeddings, and reports pairs above the threshold for human review.\n"
+            "vector embeddings, and reports pairs above the threshold for human review. "
+            "The default threshold is tuned for short normative guardrails; increase it when you "
+            "want fewer suggestions.\n"
         )
         raise SystemExit(0)
 
@@ -180,7 +183,7 @@ def deduplicate(
         return pair
 
     def _token_set(text: str) -> set[str]:
-        return set(re.findall(r"[a-z0-9]+", text))
+        return set(re.findall(r"[a-z0-9]+", normalize_text(text)))
 
     def _jaccard_similarity(left: set[str], right: set[str]) -> float:
         union = len(left | right)

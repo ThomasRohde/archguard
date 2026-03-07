@@ -14,6 +14,7 @@ from archguard.core.search import (
     rrf_score,
     vector_search,
 )
+from archguard.core.search_terms import normalize_text
 
 
 class TestRRFScore:
@@ -28,6 +29,14 @@ class TestRRFScore:
 
     def test_empty_ranks(self) -> None:
         assert rrf_score([]) == 0.0
+
+
+class TestNormalizeText:
+    def test_splits_camel_case_terms(self) -> None:
+        assert (
+            normalize_text("kind apiVersion responseObject")
+            == "kind api version response object"
+        )
 
 
 class TestRankedDoc:

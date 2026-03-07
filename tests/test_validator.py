@@ -7,7 +7,11 @@ from pathlib import Path
 import orjson
 
 from archguard.core.models import Guardrail
-from archguard.core.validator import check_authoring_quality, validate_corpus
+from archguard.core.validator import (
+    check_authoring_quality,
+    check_severity_consistency,
+    validate_corpus,
+)
 
 
 class TestValidateCorpusClean:
@@ -92,6 +96,33 @@ class TestValidateCorpusClean:
         )
         warnings = check_authoring_quality(guardrail, references=[object()])  # type: ignore[list-item]
         assert all("guidance may be too soft or descriptive" not in w for w in warnings)
+
+    def test_metalinguistic_guidance_does_not_trigger_severity_warning(
+        self, sample_guardrail_dict: dict
+    ) -> None:
+        guardrail = Guardrail.model_validate(
+            {
+                **sample_guardrail_dict,
+                "severity": "should",
+                "guidance": (
+                    "Validation errors should use must, must not, and may not when "
+                    "describing rejected input values."
+                ),
+            }
+        )
+        warnings = check_severity_consistency(guardrail)
+        assert warnings == []
+
+    def test_true_severity_conflict_still_warns(self, sample_guardrail_dict: dict) -> None:
+        guardrail = Guardrail.model_validate(
+            {
+                **sample_guardrail_dict,
+                "severity": "should",
+                "guidance": "Teams must register every API before deployment.",
+            }
+        )
+        warnings = check_severity_consistency(guardrail)
+        assert any("conflicting must/shall/required language" in warning for warning in warnings)
 
 
 class TestValidateCorpusErrors:

@@ -92,13 +92,17 @@ def _build_guide(data_dir: str = "guardrails") -> dict[str, Any]:
         "error_codes": _error_codes(),
         "exit_codes": {
             "0": "Success",
-            "10": (
-                "Validation error "
-                "(bad input, schema mismatch, resource not found)"
-            ),
-            "40": "Conflict (stale state, already exists, invalid transition)",
-            "50": "I/O error (file not found, disk full)",
-            "90": "Internal error (bug)",
+            "1": "General/unspecified error",
+            "2": "Usage error (bad arguments, missing required options)",
+            "10": "Not found (guardrail, reference, or link does not exist)",
+            "11": "Already exists (duplicate ID or title on add)",
+            "12": "Invalid transition (unsupported status change)",
+            "20": "Validation error (input/schema/taxonomy validation failure)",
+            "21": "Integrity error (broken links, orphan references, JSONL integrity)",
+            "30": "Build error (SQLite index build failure)",
+            "31": "Model error (embedding model missing or failed to load)",
+            "40": "I/O error (file read/write failure)",
+            "50": "Internal error (bug)",
         },
         "envelope_schema": {
             "schema_version": "string — always present",
@@ -890,7 +894,8 @@ def _commands() -> dict[str, Any]:
             "mutates": False,
             "description": (
                 "Detect likely duplicate guardrails via "
-                "hybrid FTS + vector similarity."
+                "hybrid FTS + vector similarity. The default threshold is tuned "
+                "for short, normative guardrails."
             ),
             "args": [],
             "flags": ["--threshold FLOAT", "--explain"],
@@ -998,6 +1003,15 @@ def _error_codes() -> dict[str, Any]:
                 "Input does not conform to the expected schema."
             ),
         },
+        "ERR_INTEGRITY": {
+            "exit_code": ERROR_EXIT_MAP["ERR_INTEGRITY"],
+            "retryable": False,
+            "suggested_action": "fix_data",
+            "description": (
+                "Repository data integrity failed "
+                "(broken links, orphan references, malformed JSONL)."
+            ),
+        },
         "ERR_CONFLICT_EXISTS": {
             "exit_code": ERROR_EXIT_MAP["ERR_CONFLICT_EXISTS"],
             "retryable": False,
@@ -1029,6 +1043,18 @@ def _error_codes() -> dict[str, Any]:
             "description": (
                 "Unsupported file extension for I/O operation."
             ),
+        },
+        "ERR_BUILD": {
+            "exit_code": ERROR_EXIT_MAP["ERR_BUILD"],
+            "retryable": True,
+            "suggested_action": "retry",
+            "description": "SQLite index build failed.",
+        },
+        "ERR_MODEL": {
+            "exit_code": ERROR_EXIT_MAP["ERR_MODEL"],
+            "retryable": False,
+            "suggested_action": "fix_environment",
+            "description": "Embedding model is unavailable or failed to load.",
         },
         "ERR_INTERNAL": {
             "exit_code": ERROR_EXIT_MAP["ERR_INTERNAL"],
@@ -1147,7 +1173,7 @@ def _examples() -> list[dict[str, Any]]:
         {
             "title": "Detect duplicates",
             "commands": [
-                "archguard deduplicate --threshold 0.8",
+                "archguard deduplicate --threshold 0.65",
             ],
         },
     ]

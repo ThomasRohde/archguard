@@ -154,7 +154,7 @@ class TestRepositoryValidation:
     def test_missing_data_dir_is_an_error(self, tmp_path) -> None:
         missing = tmp_path / "missing"
         result = runner.invoke(app, ["--data-dir", str(missing), "list"])
-        assert result.exit_code == 50
+        assert result.exit_code == 40
         out = _parse(result.output)
         assert out["ok"] is False
         assert out["errors"][0]["code"] == "ERR_IO_FILE_NOT_FOUND"
@@ -208,10 +208,11 @@ class TestValidateCommand:
         }
         (Path(dd) / "references.jsonl").write_bytes(orjson.dumps(ref) + b"\n")
         result = runner.invoke(app, ["--data-dir", dd, "validate"])
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 21  # EXIT_INTEGRITY
         out = _parse(result.output)
         assert out["ok"] is False
         assert len(out["errors"]) >= 1
+        assert out["errors"][0]["code"] == "ERR_INTEGRITY"
 
 
 class TestAddCommand:
@@ -228,7 +229,7 @@ class TestAddCommand:
         dd = _init_dir(tmp_path)
         runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
         result = runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
-        assert result.exit_code == 40  # EXIT_CONFLICT
+        assert result.exit_code == 11  # EXIT_ALREADY_EXISTS
         out = _parse(result.output)
         assert out["ok"] is False
         assert out["errors"][0]["code"] == "ERR_CONFLICT_EXISTS"
@@ -247,12 +248,12 @@ class TestAddCommand:
             }
         )
         result = runner.invoke(app, ["--data-dir", dd, "add"], input=bad_input)
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 20  # EXIT_VALIDATION
 
     def test_add_invalid_json(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "add"], input="not json")
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 20  # EXIT_VALIDATION
 
     def test_add_missing_required_field_reports_cli_message(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -267,7 +268,7 @@ class TestAddCommand:
             }
         )
         result = runner.invoke(app, ["--data-dir", dd, "add"], input=bad_input)
-        assert result.exit_code == 10
+        assert result.exit_code == 20
         out = _parse(result.output)
         assert out["ok"] is False
         assert out["errors"][0]["message"] == "Missing required field: guidance"
@@ -287,7 +288,7 @@ class TestAddCommand:
             }
         )
         result = runner.invoke(app, ["--data-dir", dd, "add"], input=active_input)
-        assert result.exit_code == 10
+        assert result.exit_code == 20
         out = _parse(result.output)
         assert out["ok"] is False
         assert "Active guardrails require at least one reference" in out["errors"][0]["message"]
@@ -355,7 +356,7 @@ class TestAddCommand:
             }
         )
         result = runner.invoke(app, ["--data-dir", dd, "add"], input=active_input)
-        assert result.exit_code == 10
+        assert result.exit_code == 20
         out = _parse(result.output)
         assert "reference excerpt" in out["errors"][0]["message"]
 
@@ -375,7 +376,7 @@ class TestAddCommand:
             }
         )
         result = runner.invoke(app, ["--data-dir", dd, "add"], input=active_input)
-        assert result.exit_code == 10
+        assert result.exit_code == 20
         out = _parse(result.output)
         assert "non-placeholder owner" in out["errors"][0]["message"]
 
@@ -433,7 +434,7 @@ class TestGetCommand:
     def test_get_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "get", "NONEXISTENT"])
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 10  # EXIT_NOT_FOUND
         out = _parse(result.output)
         assert out["ok"] is False
         assert out["errors"][0]["code"] == "ERR_RESOURCE_NOT_FOUND"
@@ -575,7 +576,7 @@ class TestSearchCommand:
     def test_search_rejects_top_zero(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "search", "managed", "--top", "0"])
-        assert result.exit_code == 10
+        assert result.exit_code == 20
         out = _parse(result.output)
         assert out["errors"][0]["code"] == "ERR_VALIDATION_INPUT"
 
@@ -732,13 +733,13 @@ class TestCheckCommand:
     def test_check_invalid_json(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "check"], input="not json")
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 20  # EXIT_VALIDATION
 
     def test_check_missing_decision(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         context = json.dumps({"scope": ["it-platform"]})
         result = runner.invoke(app, ["--data-dir", dd, "check"], input=context)
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 20  # EXIT_VALIDATION
 
     def test_check_explain(self) -> None:
         result = runner.invoke(app, ["check", "--explain"])
@@ -955,7 +956,7 @@ class TestRelatedCommand:
     def test_related_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "related", "NONEXISTENT"])
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 10  # EXIT_NOT_FOUND
 
     def test_related_explain(self) -> None:
         result = runner.invoke(app, ["related", "SOMEID", "--explain"])
@@ -1029,26 +1030,26 @@ class TestUpdateCommand:
         gid = _add_guardrail(dd)
         patch = json.dumps({"scope": ["nonexistent-scope"]})
         result = runner.invoke(app, ["--data-dir", dd, "update", gid], input=patch)
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 20  # EXIT_VALIDATION
 
     def test_update_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         patch = json.dumps({"title": "New"})
         result = runner.invoke(app, ["--data-dir", dd, "update", "NONEXISTENT"], input=patch)
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 10  # EXIT_NOT_FOUND
 
     def test_update_invalid_json(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         gid = _add_guardrail(dd)
         result = runner.invoke(app, ["--data-dir", dd, "update", gid], input="not json")
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 20  # EXIT_VALIDATION
 
     def test_update_superseded_status_blocked(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         gid = _add_guardrail(dd)
         patch = json.dumps({"status": "superseded"})
         result = runner.invoke(app, ["--data-dir", dd, "update", gid], input=patch)
-        assert result.exit_code == 40  # EXIT_CONFLICT
+        assert result.exit_code == 12  # EXIT_INVALID_TRANSITION
 
     def test_update_sets_updated_at(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -1077,7 +1078,7 @@ class TestUpdateCommand:
         )
         patch = json.dumps({"status": "active"})
         result = runner.invoke(app, ["--data-dir", dd, "update", gid], input=patch)
-        assert result.exit_code == 10
+        assert result.exit_code == 20
         out = _parse(result.output)
         assert "reference excerpt" in out["errors"][0]["message"]
 
@@ -1087,7 +1088,7 @@ class TestUpdateCommand:
         runner.invoke(app, ["--data-dir", dd, "ref-add", gid], input=ACTIVE_REFERENCE_INPUT)
         patch = json.dumps({"status": "active", "owner": "unassigned"})
         result = runner.invoke(app, ["--data-dir", dd, "update", gid], input=patch)
-        assert result.exit_code == 10
+        assert result.exit_code == 20
         out = _parse(result.output)
         assert "non-placeholder owner" in out["errors"][0]["message"]
 
@@ -1116,13 +1117,13 @@ class TestRefAddCommand:
             "ref_title": "Test",
         })
         result = runner.invoke(app, ["--data-dir", dd, "ref-add", "NONEXISTENT"], input=ref_input)
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 10  # EXIT_NOT_FOUND
 
     def test_ref_add_invalid_json(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         gid = _add_guardrail(dd)
         result = runner.invoke(app, ["--data-dir", dd, "ref-add", gid], input="bad json")
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 20  # EXIT_VALIDATION
 
 
 class TestLinkCommand:
@@ -1150,7 +1151,7 @@ class TestLinkCommand:
             app,
             ["--data-dir", dd, "link", gid1, gid2, "--rel", "invalid_rel"],
         )
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 20  # EXIT_VALIDATION
 
     def test_link_from_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -1159,7 +1160,7 @@ class TestLinkCommand:
             app,
             ["--data-dir", dd, "link", "NONEXISTENT", gid, "--rel", "supports"],
         )
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 10  # EXIT_NOT_FOUND
 
     def test_link_to_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -1168,7 +1169,7 @@ class TestLinkCommand:
             app,
             ["--data-dir", dd, "link", gid, "NONEXISTENT", "--rel", "supports"],
         )
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 10  # EXIT_NOT_FOUND
 
     def test_link_visible_in_related(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -1225,14 +1226,14 @@ class TestDeprecateCommand:
         result = runner.invoke(
             app, ["--data-dir", dd, "deprecate", gid, "--reason", "Again"]
         )
-        assert result.exit_code == 40  # EXIT_CONFLICT
+        assert result.exit_code == 12  # EXIT_INVALID_TRANSITION
 
     def test_deprecate_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         result = runner.invoke(
             app, ["--data-dir", dd, "deprecate", "NONEXISTENT", "--reason", "Gone"]
         )
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 10  # EXIT_NOT_FOUND
 
 
 class TestSupersedeCommand:
@@ -1269,7 +1270,7 @@ class TestSupersedeCommand:
         result = runner.invoke(
             app, ["--data-dir", dd, "supersede", "NONEXISTENT", "--by", gid]
         )
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 10  # EXIT_NOT_FOUND
 
     def test_supersede_replacement_not_found(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -1277,7 +1278,7 @@ class TestSupersedeCommand:
         result = runner.invoke(
             app, ["--data-dir", dd, "supersede", gid, "--by", "NONEXISTENT"]
         )
-        assert result.exit_code == 10  # EXIT_VALIDATION
+        assert result.exit_code == 10  # EXIT_NOT_FOUND
 
     def test_supersede_invalid_transition(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
@@ -1288,7 +1289,7 @@ class TestSupersedeCommand:
         result = runner.invoke(
             app, ["--data-dir", dd, "supersede", old_id, "--by", new_id]
         )
-        assert result.exit_code == 40  # EXIT_CONFLICT
+        assert result.exit_code == 12  # EXIT_INVALID_TRANSITION
 
 
 class TestStatsCommand:
@@ -1692,7 +1693,39 @@ class TestDeduplicateCommand:
         assert result.exit_code == 0
         out = _parse(result.output)
         assert out["ok"] is True
-        assert out["result"]["threshold"] == 0.8
+        assert out["result"]["threshold"] == 0.65
+        assert out["result"]["total"] >= 1
+
+    def test_deduplicate_default_threshold_handles_short_normative_rules(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+        g1 = json.dumps({
+            "title": "Include kind and apiVersion in every API object",
+            "severity": "should",
+            "rationale": "Clients need explicit resource typing.",
+            "guidance": "Return kind and apiVersion fields on all API objects.",
+            "scope": ["it-platform"],
+            "applies_to": ["technology"],
+            "owner": "Platform Team",
+        })
+        g2 = json.dumps({
+            "title": "Return kind and apiVersion on every API response object",
+            "severity": "should",
+            "rationale": "Consistent response typing improves interoperability.",
+            "guidance": "Every API response object should include kind and apiVersion.",
+            "scope": ["it-platform"],
+            "applies_to": ["technology"],
+            "owner": "Platform Team",
+        })
+        _add_guardrail(dd, g1)
+        _add_guardrail(dd, g2)
+
+        result = runner.invoke(app, ["--data-dir", dd, "deduplicate"])
+        assert result.exit_code == 0
+        out = _parse(result.output)
+        assert out["result"]["total"] >= 1
+        first_pair = out["result"]["pairs"][0]
+        assert "ersion" not in first_pair.get("shared_terms", [])
+        assert "api" in first_pair.get("shared_terms", [])
         assert out["result"]["total"] >= 1
 
     def test_deduplicate_ignores_embedding_only_false_positive(self, tmp_path, monkeypatch) -> None:
@@ -1759,7 +1792,7 @@ class TestFormatFlag:
     def test_init_table_format_fails_clearly(self, tmp_path) -> None:
         data_dir = tmp_path / "guardrails"
         result = runner.invoke(app, ["--data-dir", str(data_dir), "-f", "table", "init"])
-        assert result.exit_code == 10
+        assert result.exit_code == 20
         out = _parse(result.output)
         assert out["ok"] is False
         assert out["errors"][0]["code"] == "ERR_VALIDATION_FORMAT"
@@ -1767,17 +1800,36 @@ class TestFormatFlag:
     def test_validate_markdown_format_fails_clearly(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
         result = runner.invoke(app, ["--data-dir", dd, "-f", "markdown", "validate"])
-        assert result.exit_code == 10
+        assert result.exit_code == 20
         out = _parse(result.output)
         assert out["ok"] is False
         assert out["errors"][0]["code"] == "ERR_VALIDATION_FORMAT"
 
     def test_guide_markdown_format_fails_clearly(self) -> None:
         result = runner.invoke(app, ["-f", "markdown", "guide"])
-        assert result.exit_code == 10
-        out = _parse(result.output)
-        assert out["ok"] is False
-        assert out["errors"][0]["code"] == "ERR_VALIDATION_FORMAT"
+        assert result.exit_code == 20
+
+    def test_exit_code_contract_matches_prd_categories(self, tmp_path) -> None:
+        dd = _init_dir(tmp_path)
+
+        not_found = runner.invoke(app, ["--data-dir", dd, "get", "NONEXISTENT"])
+        assert not_found.exit_code == 10
+
+        invalid = runner.invoke(app, ["--data-dir", dd, "add"], input="not json")
+        assert invalid.exit_code == 20
+
+        first_add = runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
+        assert first_add.exit_code == 0
+        duplicate = runner.invoke(app, ["--data-dir", dd, "add"], input=ADD_INPUT)
+        assert duplicate.exit_code == 11
+
+        guardrail_id = _parse(first_add.output)["result"]["guardrail"]["id"]
+        invalid_transition = runner.invoke(
+            app,
+            ["--data-dir", dd, "update", guardrail_id],
+            input=json.dumps({"status": "superseded"}),
+        )
+        assert invalid_transition.exit_code == 12
 
     def test_list_table_format(self, tmp_path) -> None:
         dd = _init_dir(tmp_path)
